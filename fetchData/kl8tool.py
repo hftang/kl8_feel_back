@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+"""获取福彩快乐8中奖号码，统计分析与趋势图"""
+
+import re
+import os
+import io
+import base64
+import random
+from collections import Counter
+from itertools import chain
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# 中文字体设置
+plt.rcParams["font.sans-serif"] = ["Arial Unicode MS", "SimHei", "PingFang SC"]
+plt.rcParams["axes.unicode_minus"] = False
+
+OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def fetch_kl8_data():
+    """从500彩票网XML接口获取快乐8开奖数据"""
+    import subprocess
+    url = "https://kaijiang.500.com/static/info/kaijiang/xml/kl8/list.xml"
+    cmd = [
+        "curl", "-s", url,
+        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "--connect-timeout", "10"
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        return result.stdout
+    except Exception as e:
+        print(f"获取数据失败: {e}")
+        return None
+
+
+def parse_xml_data(xml_content, count=30):
+    """解析XML格式的开奖数据"""
+    results = []
+    pattern = r'<row expect="(\d+)" opencode="([^"]+)" opentime="([^"]+)"'
+    matches = re.findall(pattern, xml_content)
+
+    for i, (period, numbers_str, datetime_str) in enumerate(matches):
+        if i >= count:
+            break
+        date = datetime_str.split(" ")[0]
+        numbers = numbers_str.split(",")
+        results.append({
+            "period": period,
+            "date": date,
+            "numbers": numbers
+        })
+
+    return results
+
+
+def display_results(results):
+    """显示开奖结果"""
+    if not results:
+        print("未获取到开奖数据")
+        return
+
+    print(f"\n{'='*85}")
+    print(f"{'福彩快乐8近30期中奖号码':^75}")
+    print(f"{'='*85}")
+    print(f"{'序号':<6}{'期号':<12}{'开奖日期':<14}{'开奖号码（20个）'}")
+    print(f"{'-'*85}")
+
+    for i, r in enumerate(results, 1):
+        period = r.get("period", "未知")
+        date = r.get("date", "未知")
+        numbers = r.get("numbers", [])
+        nums_str = " ".join(numbers)
+        print(f"{i:<6}{period:<12}{date:<14}{nums_str}")
+
+    print(f"{'='*85}")
+    print(f"数据来源: 500彩票网 | 共 {len(results)} 期\n")
+
+
+# ==================== 统计分析 ====================
+
+
+def frequency_analysis(results):
+    """统计每个号码(1-80)出现的次数"""
+    all_numbers = [int(x) for x in chain.from_iterable(r["numbers"] for r in results)]
+    counter = Counter(all_numbers)
+    return {n: counter.get(n, 0) for n in range(1, 81)}
+
+
+def hot_cold_analysis(freq_dict, top_n=10):
+    """找出热号(高频)和冷号(低频)"""
+    sorted_items = sorted(freq_dict.items(), key=lambda x: x[1], reverse=True)
+    hot = sorted_items[:top_n]
+    cold = sorted_items[-top_n:]
+    return hot, cold
+
+
+def missing_analysis(results):
+    """计算每个号码的遗漏期数(距最近一次出现的间隔)"""
+    missing = {}
+    for n in range(1, 81):
+        for i, r in enumerate(results):
+            if n in [int(x) for x in r["numbers"]]:
+                missing[n] = i
+                break
+        else:
+            missing[n] = len(results)
+    return missing
+
+
+
+def odd_even_analysis(results):
+    """每期奇偶比统计"""
+    stats = []
+    for r in results:
+        nums = [int(x) for x in r["numbers"]]
+        odd = sum(1 for n in nums if n % 2 == 1)
+        even = 20 - odd
+        stats.append({
+            "period": r["period"],
+            "date": r["date"],
+            "odd": odd,
+            "even": even
+        })
+    return stats
+
+
+def sum_value_analysis(results):
+    """每期号码和值统计"""
+    sums = []
+    for r in results:
+        total = sum(int(x) for x in r["numbers"])
+        sums.append({
+            "period": r["period"],
+            "date": r["date"],
+            "sum": total
+        })
+    return sums
+
+
+def print_analysis(results):
+    """打印统计分析结果"""
+    freq = frequency_analysis(results)
+
+    # 频率统计
+    print(f"\n{'='*60}")
+    print(f"{'号码频率统计（近30期）':^50}")
+    print(f"{'='*60}")
+    for n in range(1, 81):
+        count = freq[n]
+        if (n - 1) % 10 == 0 and n > 1:
+            print()
+        print(f"{n:>2}:{count:>2} ", end="")
+    print(f"\n{'='*60}")
+
+    # 冷热号
+    hot, cold = hot_cold_analysis(freq)
+    print(f"\n{'='*60}")
+    print(f"{'热号 TOP10（出现最多）':^50}")
+    print(f"{'='*60}")
+    for num, count in hot:
+        print(f"  号码 {num:>2}  出现 {count} 次")
+    print(f"\n{'='*60}")
+    print(f"{'冷号 TOP10（出现最少）':^50}")
+    print(f"{'='*60}")
+    for num, count in cold:
+        print(f"  号码 {num:>2}  出现 {count} 次")
+
+    # 遗漏分析
+    missing = missing_analysis(results)
+    print(f"\n{'='*60}")
+    print(f"{'遗漏分析（距上次出现的期数）':^50}")
+    print(f"{'='*60}")
+    sorted_miss = sorted(missing.items(), key=lambda x: x[1], reverse=True)
+    print("  遗漏最多的号码:")
+    for num, miss in sorted_miss[:10]:
+        print(f"    号码 {num:>2}  已遗漏 {miss} 期")
+    print("  遗漏最少的号码:")
+    for num, miss in sorted_miss[-10:]:
+        print(f"    号码 {num:>2}  已遗漏 {miss} 期")
+
+    # 奇偶分析
+    oe_stats = odd_even_analysis(results)
+    print(f"\n{'='*60}")
+    print(f"{'奇偶比分析':^50}")
+    print(f"{'='*60}")
+    for s in oe_stats:
+        print(f"  第{s['period']}期 ({s['date']}): 奇数{s['odd']}个 偶数{s['even']}个  比值 {s['odd']}:{s['even']}")
+
+    # 和值分析
+    sv_stats = sum_value_analysis(results)
+    print(f"\n{'='*60}")
+    print(f"{'和值分析':^50}")
+    print(f"{'='*60}")
+    avg_sum = sum(s["sum"] for s in sv_stats) / len(sv_stats)
+    print(f"  平均和值: {avg_sum:.1f}")
+    print(f"  最大和值: {max(s['sum'] for s in sv_stats)}")
+    print(f"  最小和值: {min(s['sum'] for s in sv_stats)}")
+    for s in sv_stats:
+        print(f"  第{s['period']}期 ({s['date']}): 和值 = {s['sum']}")
+
+
+# ==================== 趋势图 ====================
+
+
+def plot_frequency(results):
+    """号码出现频率柱状图"""
+    freq = frequency_analysis(results)
+    numbers = list(range(1, 81))
+    counts = [freq[n] for n in numbers]
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+    colors = ["#e74c3c" if c >= 10 else "#3498db" if c >= 7 else "#95a5a6" for c in counts]
+    ax.bar(numbers, counts, color=colors, edgecolor="white", linewidth=0.5)
+
+    ax.set_xlabel("号码", fontsize=12)
+    ax.set_ylabel("出现次数", fontsize=12)
+    ax.set_title("福彩快乐8 近30期号码出现频率", fontsize=16, fontweight="bold")
+    ax.set_xticks(numbers)
+    ax.set_xticklabels(numbers, fontsize=7)
+    ax.set_xlim(0, 81)
+
+    # 图例
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="#e74c3c", label="热号 (≥10次)"),
+        Patch(facecolor="#3498db", label="温号 (7-9次)"),
+        Patch(facecolor="#95a5a6", label="冷号 (<7次)"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right")
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, "kl8_frequency.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  频率图已保存: {path}")
+
+
+def plot_trend(results):
+    """每期和值趋势折线图"""
+    sv_stats = sum_value_analysis(results)
+    # 按时间正序（最早在左）
+    sv_stats = list(reversed(sv_stats))
+
+    periods = [s["period"][-4:] for s in sv_stats]
+    sums = [s["sum"] for s in sv_stats]
+    avg = sum(sums) / len(sums)
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(periods, sums, marker="o", color="#2ecc71", linewidth=2, markersize=5, label="和值")
+    ax.axhline(y=avg, color="#e74c3c", linestyle="--", linewidth=1, label=f"平均值 ({avg:.0f})")
+
+    ax.set_xlabel("期号（后4位）", fontsize=12)
+    ax.set_ylabel("和值", fontsize=12)
+    ax.set_title("福彩快乐8 近30期和值趋势", fontsize=16, fontweight="bold")
+    ax.set_xticks(range(len(periods)))
+    ax.set_xticklabels(periods, rotation=45, fontsize=8)
+    ax.legend()
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, "kl8_trend.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  趋势图已保存: {path}")
+
+
+def plot_odd_even(results):
+    """奇偶比例走势"""
+    oe_stats = odd_even_analysis(results)
+    # 按时间正序
+    oe_stats = list(reversed(oe_stats))
+
+    periods = [s["period"][-4:] for s in oe_stats]
+    odds = [s["odd"] for s in oe_stats]
+    evens = [s["even"] for s in oe_stats]
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    x = range(len(periods))
+    width = 0.35
+
+    ax.bar([i - width/2 for i in x], odds, width, label="奇数", color="#e74c3c")
+    ax.bar([i + width/2 for i in x], evens, width, label="偶数", color="#3498db")
+
+    ax.set_xlabel("期号（后4位）", fontsize=12)
+    ax.set_ylabel("个数", fontsize=12)
+    ax.set_title("福彩快乐8 近30期奇偶比走势", fontsize=16, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(periods, rotation=45, fontsize=8)
+    ax.legend()
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, "kl8_odd_even.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  奇偶图已保存: {path}")
+
+
+def plot_missing(results):
+    """遗漏期数柱状图"""
+    missing = missing_analysis(results)
+    numbers = list(range(1, 81))
+    miss_vals = [missing[n] for n in numbers]
+
+    fig, ax = plt.subplots(figsize=(18, 6))
+    colors = ["#e74c3c" if m >= 10 else "#f39c12" if m >= 5 else "#2ecc71" for m in miss_vals]
+    ax.bar(numbers, miss_vals, color=colors, edgecolor="white", linewidth=0.5)
+
+    ax.set_xlabel("号码", fontsize=12)
+    ax.set_ylabel("遗漏期数", fontsize=12)
+    ax.set_title("福彩快乐8 近30期号码遗漏分析", fontsize=16, fontweight="bold")
+    ax.set_xticks(numbers)
+    ax.set_xticklabels(numbers, fontsize=7)
+    ax.set_xlim(0, 81)
+
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor="#e74c3c", label="高遗漏 (≥10期)"),
+        Patch(facecolor="#f39c12", label="中遗漏 (5-9期)"),
+        Patch(facecolor="#2ecc71", label="低遗漏 (<5期)"),
+    ]
+    ax.legend(handles=legend_elements, loc="upper right")
+
+    plt.tight_layout()
+    path = os.path.join(OUTPUT_DIR, "kl8_missing.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  遗漏图已保存: {path}")
+
+
+# ==================== 选号推荐 ====================
+
+
+STRATEGIES = [
+    {
+        "id": "hot",
+        "name": "热号追踪",
+        "desc": "选取近50期出现频率最高的号码，追热不追冷",
+    },
+    {
+        "id": "cold_rebound",
+        "name": "冷号回补",
+        "desc": "选取长期未出的号码，关注冷号回补机会",
+    },
+    {
+        "id": "missing",
+        "name": "遗漏反弹",
+        "desc": "选取遗漏期数较高的号码，等待反弹出现",
+    },
+    {
+        "id": "zone_balance",
+        "name": "区间均衡",
+        "desc": "将1-80分为4个区间(1-20/21-40/41-60/61-80)，每区等比选号",
+    },
+    {
+        "id": "odd_even",
+        "name": "奇偶均衡",
+        "desc": "根据历史奇偶比，选出接近均衡比例的号码组合",
+    },
+    {
+        "id": "sum_target",
+        "name": "和值控制",
+        "desc": "控制所选号码和值接近历史平均值，避免过大或过小",
+    },
+    {
+        "id": "consecutive",
+        "name": "连号策略",
+        "desc": "包含1-2组相邻号码，历史上连号出现概率较高",
+    },
+    {
+        "id": "composite",
+        "name": "综合推荐",
+        "desc": "综合热号+遗漏+区间+奇偶多维度加权，推荐均衡组合",
+    },
+]
+
+
+def _recommend_hot(count, freq, missing):
+    """热号追踪"""
+    sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], x[0]))
+    nums = [n for n, _ in sorted_freq[:count]]
+    return sorted(nums)
+
+
+def _recommend_cold_rebound(count, freq, missing):
+    """冷号回补 — 选出现次数最少的号码"""
+    sorted_freq = sorted(freq.items(), key=lambda x: (x[1], x[0]))
+    nums = [n for n, _ in sorted_freq[:count]]
+    return sorted(nums)
+
+
+def _recommend_missing(count, freq, missing):
+    """遗漏反弹 — 选遗漏期数最多的号码"""
+    sorted_miss = sorted(missing.items(), key=lambda x: (-x[1], x[0]))
+    nums = [n for n, _ in sorted_miss[:count]]
+    return sorted(nums)
+
+
+def _recommend_zone_balance(count, freq, missing):
+    """区间均衡 — 4区等比选号"""
+    zones = [(1, 20), (21, 40), (41, 60), (61, 80)]
+    per_zone = max(1, count // 4)
+    remainder = count - per_zone * 4
+    result = []
+    for i, (lo, hi) in enumerate(zones):
+        n = per_zone + (1 if i < remainder else 0)
+        pool = [(freq[num], missing[num], num) for num in range(lo, hi + 1)]
+        pool.sort(key=lambda x: (-x[0], x[1]))
+        result.extend([p[2] for p in pool[:n]])
+    return sorted(result)
+
+
+def _recommend_odd_even(count, freq, missing):
+    """奇偶均衡"""
+    odd_count = count // 2 + (count % 2)
+    even_count = count - odd_count
+    odd_pool = [(freq[n], missing[n], n) for n in range(1, 81) if n % 2 == 1]
+    even_pool = [(freq[n], missing[n], n) for n in range(1, 81) if n % 2 == 0]
+    odd_pool.sort(key=lambda x: (-x[0], x[1]))
+    even_pool.sort(key=lambda x: (-x[0], x[1]))
+    result = [p[2] for p in odd_pool[:odd_count]] + [p[2] for p in even_pool[:even_count]]
+    return sorted(result)
+
+
+def _recommend_sum_target(count, freq, missing):
+    """和值控制 — 使号码和值接近理论均值"""
+    # 理论均值: 80个号选20个，平均约40.5，选count个的和值目标 ≈ count * 40.5
+    target = count * 40.5
+    pool = [(freq[n] + 1, missing[n], n) for n in range(1, 81)]
+    pool.sort(key=lambda x: -x[0])
+    # 贪心: 从高频开始，逐步调整使和值接近目标
+    selected = []
+    current_sum = 0
+    for score, miss, n in pool:
+        if len(selected) >= count:
+            break
+        selected.append(n)
+        current_sum += n
+    # 如果偏离目标太远，交换优化
+    pool_sorted = sorted([(freq[n], missing[n], n) for n in range(1, 81)], key=lambda x: x[2])
+    for _ in range(50):
+        if abs(current_sum - target) < 2:
+            break
+        idx = random.randint(0, len(selected) - 1)
+        old = selected[idx]
+        for _, _, cand in pool_sorted:
+            if cand not in selected:
+                new_sum = current_sum - old + cand
+                if abs(new_sum - target) < abs(current_sum - target):
+                    selected[idx] = cand
+                    current_sum = new_sum
+                    break
+    return sorted(selected)
+
+
+def _recommend_consecutive(count, freq, missing):
+    """连号策略 — 包含1-2组相邻号"""
+    # 先按频率排序
+    sorted_freq = sorted(freq.items(), key=lambda x: -x[1])
+    top_nums = [n for n, _ in sorted_freq]
+    # 找相邻对
+    pairs = []
+    for i in range(len(top_nums) - 1):
+        a, b = top_nums[i], top_nums[i + 1]
+        if b == a + 1:
+            pairs.append((a, b))
+    result = []
+    used = set()
+    # 加入第一组连号
+    if pairs:
+        result.extend(list(pairs[0]))
+        used.update(pairs[0])
+    # 加入第二组连号(如果数量够)
+    for p in pairs[1:]:
+        if len(result) >= count:
+            break
+        for n in p:
+            if n not in used and len(result) < count:
+                result.append(n)
+                used.add(n)
+    # 补足剩余
+    for n in top_nums:
+        if len(result) >= count:
+            break
+        if n not in used:
+            result.append(n)
+            used.add(n)
+    return sorted(result[:count])
+
+
+def _recommend_composite(count, freq, missing):
+    """综合推荐 — 多维度加权"""
+    scores = {}
+    max_freq = max(freq.values()) if freq else 1
+    max_miss = max(missing.values()) if missing else 1
+    for n in range(1, 81):
+        # 频率得分(0-30)
+        f_score = (freq.get(n, 0) / max_freq) * 30
+        # 遗漏得分(0-25) — 遗漏越高得分越高
+        m_score = (missing.get(n, 0) / max_miss) * 25
+        # 区间得分(0-20) — 均衡
+        zone_idx = (n - 1) // 20
+        z_score = 20 - abs(zone_idx - 1.5) * 5
+        # 奇偶得分(0-15)
+        oe_score = 15 if n % 2 == 1 else 12
+        # 位置分(0-10) — 中间段略优
+        pos_score = 10 - abs(n - 40) / 40 * 10
+        scores[n] = f_score + m_score + z_score + oe_score + pos_score
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
+RECOMMEND_FUNCS = {
+    "hot": _recommend_hot,
+    "cold_rebound": _recommend_cold_rebound,
+    "missing": _recommend_missing,
+    "zone_balance": _recommend_zone_balance,
+    "odd_even": _recommend_odd_even,
+    "sum_target": _recommend_sum_target,
+    "consecutive": _recommend_consecutive,
+    "composite": _recommend_composite,
+}
+
+
+def recommend(count, results):
+    """对每种策略生成推荐号码"""
+    freq = frequency_analysis(results)
+    missing = missing_analysis(results)
+    output = []
+    for s in STRATEGIES:
+        nums = RECOMMEND_FUNCS[s["id"]](count, freq, missing)
+        output.append({
+            "id": s["id"],
+            "name": s["name"],
+            "desc": s["desc"],
+            "numbers": nums,
+        })
+    return output
+
+
+# ==================== 主函数 ====================
+
+
+def main():
+    print("正在获取福彩快乐8近30期开奖数据...\n")
+
+    xml_content = fetch_kl8_data()
+    if not xml_content:
+        print("获取数据失败，请检查网络连接")
+        return
+
+    results = parse_xml_data(xml_content, 30)
+    if not results:
+        print("解析数据失败")
+        return
+
+    print(f"成功获取 {len(results)} 期数据")
+    display_results(results)
+
+    # 统计分析
+    print("\n正在运行统计分析...")
+    print_analysis(results)
+
+    # 趋势图
+    print("\n正在生成趋势图...")
+    plot_frequency(results)
+    plot_trend(results)
+    plot_odd_even(results)
+    plot_missing(results)
+
+    print(f"\n所有图表已保存到: {OUTPUT_DIR}")
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ==================== Web 接口 ====================
+
+
+def _fig_to_base64(fig):
+    """将 matplotlib figure 转为 base64 字符串"""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode("utf-8")
+    plt.close(fig)
+    return b64
+
+
+def _plot_frequency_b64(results):
+    freq = frequency_analysis(results)
+    numbers = list(range(1, 81))
+    counts = [freq[n] for n in numbers]
+    fig, ax = plt.subplots(figsize=(16, 5))
+    colors = ["#e74c3c" if c >= 10 else "#3498db" if c >= 7 else "#95a5a6" for c in counts]
+    ax.bar(numbers, counts, color=colors, edgecolor="white", linewidth=0.5)
+    ax.set_xlabel("号码", fontsize=11)
+    ax.set_ylabel("出现次数", fontsize=11)
+    ax.set_title(f"号码出现频率（近{len(results)}期）", fontsize=14, fontweight="bold")
+    ax.set_xticks(numbers)
+    ax.set_xticklabels(numbers, fontsize=6)
+    ax.set_xlim(0, 81)
+    from matplotlib.patches import Patch
+    ax.legend(handles=[
+        Patch(facecolor="#e74c3c", label="热号 (>=10次)"),
+        Patch(facecolor="#3498db", label="温号 (7-9次)"),
+        Patch(facecolor="#95a5a6", label="冷号 (<7次)"),
+    ], loc="upper right")
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _plot_trend_b64(results):
+    sv = sum_value_analysis(results)
+    sv = list(reversed(sv))
+    periods = [s["period"][-4:] for s in sv]
+    sums = [s["sum"] for s in sv]
+    avg = sum(sums) / len(sums)
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(periods, sums, marker="o", color="#2ecc71", linewidth=2, markersize=4, label="和值")
+    ax.axhline(y=avg, color="#e74c3c", linestyle="--", linewidth=1, label=f"平均值 ({avg:.0f})")
+    ax.set_xlabel("期号", fontsize=11)
+    ax.set_ylabel("和值", fontsize=11)
+    ax.set_title(f"和值趋势（近{len(results)}期）", fontsize=14, fontweight="bold")
+    ax.set_xticks(range(len(periods)))
+    ax.set_xticklabels(periods, rotation=45, fontsize=7)
+    ax.legend()
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _plot_odd_even_b64(results):
+    oe = odd_even_analysis(results)
+    oe = list(reversed(oe))
+    periods = [s["period"][-4:] for s in oe]
+    odds = [s["odd"] for s in oe]
+    evens = [s["even"] for s in oe]
+    fig, ax = plt.subplots(figsize=(12, 5))
+    x = range(len(periods))
+    w = 0.35
+    ax.bar([i - w/2 for i in x], odds, w, label="奇数", color="#e74c3c")
+    ax.bar([i + w/2 for i in x], evens, w, label="偶数", color="#3498db")
+    ax.set_xlabel("期号", fontsize=11)
+    ax.set_ylabel("个数", fontsize=11)
+    ax.set_title(f"奇偶比走势（近{len(results)}期）", fontsize=14, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(periods, rotation=45, fontsize=7)
+    ax.legend()
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _plot_missing_b64(results):
+    missing = missing_analysis(results)
+    numbers = list(range(1, 81))
+    miss_vals = [missing[n] for n in numbers]
+    fig, ax = plt.subplots(figsize=(16, 5))
+    colors = ["#e74c3c" if m >= 10 else "#f39c12" if m >= 5 else "#2ecc71" for m in miss_vals]
+    ax.bar(numbers, miss_vals, color=colors, edgecolor="white", linewidth=0.5)
+    ax.set_xlabel("号码", fontsize=11)
+    ax.set_ylabel("遗漏期数", fontsize=11)
+    ax.set_title(f"号码遗漏分析（近{len(results)}期）", fontsize=14, fontweight="bold")
+    ax.set_xticks(numbers)
+    ax.set_xticklabels(numbers, fontsize=6)
+    ax.set_xlim(0, 81)
+    from matplotlib.patches import Patch
+    ax.legend(handles=[
+        Patch(facecolor="#e74c3c", label="高遗漏 (>=10期)"),
+        Patch(facecolor="#f39c12", label="中遗漏 (5-9期)"),
+        Patch(facecolor="#2ecc71", label="低遗漏 (<5期)"),
+    ], loc="upper right")
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def generate_charts(results):
+    """生成4张图表，返回 base64 字典"""
+    return {
+        "frequency": _plot_frequency_b64(results),
+        "trend": _plot_trend_b64(results),
+        "odd_even": _plot_odd_even_b64(results),
+        "missing": _plot_missing_b64(results),
+    }

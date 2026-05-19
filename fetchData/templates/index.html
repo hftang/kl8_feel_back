@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>福彩快乐8 数据分析</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; }
+  .header { background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; padding: 32px 20px; text-align: center; }
+  .header h1 { font-size: 28px; margin-bottom: 8px; letter-spacing: 2px; }
+  .header p { opacity: 0.85; font-size: 14px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+  .btn-row { text-align: center; margin: 24px 0; }
+  .btn-fetch {
+    background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; border: none; padding: 14px 48px;
+    font-size: 18px; border-radius: 25px; cursor: pointer; transition: all .2s;
+    box-shadow: 0 4px 15px rgba(231,76,60,.3);
+  }
+  .btn-fetch:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(231,76,60,.4); }
+  .btn-fetch:disabled { background: #95a5a6; box-shadow: none; cursor: not-allowed; transform: none; }
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); margin-bottom: 24px; overflow: hidden; }
+  .card-title { padding: 16px 20px; font-size: 16px; font-weight: 600; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+  .card-title .icon { width: 20px; height: 20px; border-radius: 4px; }
+  .card-title .count-badge { background: #e74c3c; color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
+
+  /* 开奖号码卡片列表 */
+  .period-list { padding: 12px; max-height: 600px; overflow-y: auto; }
+  .period-card {
+    display: flex; align-items: center; gap: 16px; padding: 14px 16px;
+    border-radius: 10px; margin-bottom: 8px; transition: all .15s;
+    background: #fafbfc;
+  }
+  .period-card:hover { background: #fff3e6; box-shadow: 0 2px 8px rgba(231,76,60,.08); }
+  .period-card:nth-child(odd) { background: #f8f9fa; }
+  .period-card:nth-child(odd):hover { background: #fff3e6; }
+
+  .period-info { min-width: 130px; flex-shrink: 0; }
+  .period-num { font-size: 16px; font-weight: 700; color: #2c3e50; }
+  .period-date { font-size: 12px; color: #95a5a6; margin-top: 2px; }
+  .period-idx {
+    width: 28px; height: 28px; border-radius: 50%; background: #ecf0f1;
+    color: #7f8c8d; font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+
+  .ball-row { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+  .ball {
+    width: 34px; height: 34px; border-radius: 50%; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.15);
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.1);
+    background: linear-gradient(145deg, #5dade2, #2e86c1);
+    transition: transform .15s;
+  }
+  .ball:hover { transform: scale(1.2); z-index: 1; }
+  .ball.hot {
+    background: linear-gradient(145deg, #f1948a, #e74c3c);
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,.15), 0 2px 6px rgba(231,76,60,.3);
+  }
+  .ball-cold {
+    background: linear-gradient(145deg, #bdc3c7, #95a5a6) !important;
+  }
+
+  /* 分隔线 */
+  .period-card .sep {
+    width: 1px; height: 36px; background: #e8e8e8; flex-shrink: 0;
+  }
+
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .chart-img { width: 100%; height: auto; }
+  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .placeholder { text-align: center; padding: 80px 20px; color: #aaa; }
+  .placeholder svg { width: 64px; height: 64px; fill: #ccc; margin-bottom: 16px; }
+  .error { color: #e74c3c; text-align: center; padding: 40px; font-size: 16px; }
+
+  /* 统计卡片 */
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 20px; }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: 1fr 1fr; } }
+  .stat-box { text-align: center; padding: 16px 12px; border-radius: 10px; background: #f8f9fa; }
+  .stat-val { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 12px; color: #95a5a6; margin-top: 4px; }
+  .stat-box:nth-child(1) .stat-val { color: #e74c3c; }
+  .stat-box:nth-child(2) .stat-val { color: #3498db; }
+  .stat-box:nth-child(3) .stat-val { color: #2ecc71; }
+  .stat-box:nth-child(4) .stat-val { color: #f39c12; }
+
+  .hot-cold-row { display: flex; gap: 24px; padding: 0 20px 20px; flex-wrap: wrap; }
+  .hc-col { flex: 1; min-width: 280px; }
+  .hc-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .hc-title .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .hc-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .hc-item {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 10px; border-radius: 8px; background: #f8f9fa; min-width: 56px;
+  }
+  .hc-num { font-size: 18px; font-weight: 700; }
+  .hc-freq { font-size: 11px; color: #95a5a6; }
+
+  /* 选号推荐 */
+  .recommend-section { margin-top: 8px; }
+  .pick-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+  .btn-pick {
+    padding: 10px 22px; font-size: 15px; font-weight: 600; border: 2px solid #e74c3c;
+    background: #fff; color: #e74c3c; border-radius: 25px; cursor: pointer; transition: all .2s;
+  }
+  .btn-pick:hover { background: #e74c3c; color: #fff; transform: translateY(-1px); }
+  .btn-pick.active { background: #e74c3c; color: #fff; box-shadow: 0 4px 12px rgba(231,76,60,.3); }
+
+  .rec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .rec-grid { grid-template-columns: 1fr; } }
+  .rec-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 18px 20px; border-left: 4px solid #e74c3c; }
+  .rec-card:nth-child(2) { border-left-color: #3498db; }
+  .rec-card:nth-child(3) { border-left-color: #2ecc71; }
+  .rec-card:nth-child(4) { border-left-color: #f39c12; }
+  .rec-card:nth-child(5) { border-left-color: #9b59b6; }
+  .rec-card:nth-child(6) { border-left-color: #1abc9c; }
+  .rec-card:nth-child(7) { border-left-color: #e67e22; }
+  .rec-card:nth-child(8) { border-left-color: #34495e; }
+  .rec-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+  .rec-desc { font-size: 12px; color: #888; margin-bottom: 12px; }
+  .rec-nums { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rec-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 50%; font-size: 15px; font-weight: 700;
+    background: #e74c3c; color: #fff;
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.1);
+  }
+  .rec-card:nth-child(2) .rec-num { background: #3498db; }
+  .rec-card:nth-child(3) .rec-num { background: #2ecc71; }
+  .rec-card:nth-child(4) .rec-num { background: #f39c12; }
+  .rec-card:nth-child(5) .rec-num { background: #9b59b6; }
+  .rec-card:nth-child(6) .rec-num { background: #1abc9c; }
+  .rec-card:nth-child(7) .rec-num { background: #e67e22; }
+  .rec-card:nth-child(8) .rec-num { background: #34495e; }
+
+  .rec-loading { text-align: center; padding: 40px; color: #aaa; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#127922; 福彩快乐8 数据分析</h1>
+  <p>近50期开奖数据统计与趋势分析 + 智能选号推荐</p>
+</div>
+
+<div class="container">
+  <div class="btn-row">
+    <button class="btn-fetch" id="fetchBtn" onclick="fetchData()">&#9889; 获取近50期数据</button>
+  </div>
+
+  <div id="content">
+    <div class="placeholder">
+      <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
+      <p>点击上方按钮获取数据</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const hotNumbers = new Set();
+let savedData = null;
+let savedCharts = null;
+
+function fetchData() {
+  const btn = document.getElementById('fetchBtn');
+  const content = document.getElementById('content');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>获取中...';
+  content.innerHTML = '<div class="placeholder"><span class="spinner" style="width:32px;height:32px;border-width:4px"></span><p style="margin-top:16px">正在获取数据并生成分析图表...</p></div>';
+
+  fetch('/api/fetch')
+    .then(r => r.json())
+    .then(res => {
+      if (res.error) { content.innerHTML = '<div class="error">' + res.error + '</div>'; return; }
+      savedData = res.data;
+      savedCharts = res.charts;
+      renderResults(res.data, res.charts);
+    })
+    .catch(e => { content.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; })
+    .finally(() => { btn.disabled = false; btn.innerHTML = '⚡ 获取近50期数据'; });
+}
+
+function renderResults(data, charts) {
+  const freq = {};
+  data.forEach(r => r.numbers.forEach(n => { const v = parseInt(n); freq[v] = (freq[v] || 0) + 1; }));
+  hotNumbers.clear();
+  Object.entries(freq).forEach(([n, c]) => { if (c >= 12) hotNumbers.add(parseInt(n)); });
+
+  const totalNums = data.length * 20;
+  const avgSum = data.reduce((s, r) => s + r.numbers.reduce((a, b) => a + parseInt(b), 0), 0) / data.length;
+  const maxFreq = Math.max(...Object.values(freq));
+  const minFreq = Math.min(...Object.values(freq));
+
+  let html = '';
+
+  // 统计概览卡片
+  html += '<div class="card"><div class="card-title">&#128202; 数据概览</div>';
+  html += '<div class="stat-grid">';
+  html += '<div class="stat-box"><div class="stat-val">' + data.length + '</div><div class="stat-label">总期数</div></div>';
+  html += '<div class="stat-box"><div class="stat-val">' + totalNums + '</div><div class="stat-label">总开奖号码</div></div>';
+  html += '<div class="stat-box"><div class="stat-val">' + avgSum.toFixed(0) + '</div><div class="stat-label">平均和值</div></div>';
+  html += '<div class="stat-box"><div class="stat-val">' + maxFreq + ' / ' + minFreq + '</div><div class="stat-label">最高 / 最低频次</div></div>';
+  html += '</div></div>';
+
+  // 开奖号码列表
+  const sortedFreq = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+  const hot10 = sortedFreq.slice(0, 10);
+  const cold10 = sortedFreq.slice(-10).reverse();
+
+  html += '<div class="card"><div class="card-title">&#127922; 开奖号码列表 <span class="count-badge">共 ' + data.length + ' 期</span></div>';
+  html += '<div class="period-list">';
+  data.forEach((r, i) => {
+    const sum = r.numbers.reduce((a, b) => a + parseInt(b), 0);
+    html += '<div class="period-card">';
+    html += '<div class="period-idx">' + (i + 1) + '</div>';
+    html += '<div class="period-info"><div class="period-num">' + r.period + '</div><div class="period-date">' + r.date + ' &middot; 和值 ' + sum + '</div></div>';
+    html += '<div class="sep"></div>';
+    html += '<div class="ball-row">';
+    r.numbers.forEach(n => {
+      const v = parseInt(n);
+      const cls = hotNumbers.has(v) ? 'ball hot' : 'ball';
+      html += '<div class="' + cls + '">' + String(v).padStart(2, '0') + '</div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div></div>';
+
+  // 热号冷号
+  html += '<div class="card"><div class="card-title">&#128293; 热号冷号分析</div>';
+  html += '<div class="hot-cold-row">';
+  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#e74c3c"></span> 热号 TOP10</div><div class="hc-list">';
+  hot10.forEach(([n, c]) => {
+    html += '<div class="hc-item"><div class="hc-num" style="color:#e74c3c">' + n + '</div><div class="hc-freq">' + c + '次</div></div>';
+  });
+  html += '</div></div>';
+  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#95a5a6"></span> 冷号 TOP10</div><div class="hc-list">';
+  cold10.forEach(([n, c]) => {
+    html += '<div class="hc-item"><div class="hc-num" style="color:#95a5a6">' + n + '</div><div class="hc-freq">' + c + '次</div></div>';
+  });
+  html += '</div></div></div></div>';
+
+  // 图表
+  html += '<div class="charts-grid">';
+  html += '<div class="card"><div class="card-title">&#128200; 号码出现频率</div><img class="chart-img" src="data:image/png;base64,' + charts.frequency + '"></div>';
+  html += '<div class="card"><div class="card-title">&#128201; 和值趋势</div><img class="chart-img" src="data:image/png;base64,' + charts.trend + '"></div>';
+  html += '<div class="card"><div class="card-title">&#9878; 奇偶比走势</div><img class="chart-img" src="data:image/png;base64,' + charts.odd_even + '"></div>';
+  html += '<div class="card"><div class="card-title">&#128269; 号码遗漏分析</div><img class="chart-img" src="data:image/png;base64,' + charts.missing + '"></div>';
+  html += '</div>';
+
+  // 选号推荐
+  html += '<div class="recommend-section">';
+  html += '<div class="card"><div class="card-title">&#128161; 智能选号推荐</div><div style="padding:20px">';
+  html += '<p style="text-align:center;color:#888;margin-bottom:16px">选择要推荐的号码个数，系统将根据8种选号策略结合近50期数据生成推荐</p>';
+  html += '<div class="pick-row">';
+  for (let i = 1; i <= 8; i++) {
+    html += '<button class="btn-pick" onclick="getRecommend(' + i + ', this)">' + i + ' 个号</button>';
+  }
+  html += '</div>';
+  html += '<div id="recResult"></div>';
+  html += '</div></div>';
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html;
+}
+
+function getRecommend(count, btn) {
+  document.querySelectorAll('.btn-pick').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const container = document.getElementById('recResult');
+  container.innerHTML = '<div class="rec-loading"><span class="spinner" style="width:24px;height:24px;border-width:3px;border-top-color:#e74c3c"></span><p style="margin-top:12px">正在生成推荐...</p></div>';
+
+  fetch('/api/recommend?count=' + count)
+    .then(r => r.json())
+    .then(res => {
+      if (res.error) { container.innerHTML = '<div class="error">' + res.error + '</div>'; return; }
+      renderRecommendations(res.recommendations);
+    })
+    .catch(e => { container.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; });
+}
+
+function renderRecommendations(recs) {
+  let html = '<div class="rec-grid">';
+  recs.forEach(rec => {
+    html += '<div class="rec-card">';
+    html += '<div class="rec-name">' + rec.name + '</div>';
+    html += '<div class="rec-desc">' + rec.desc + '</div>';
+    html += '<div class="rec-nums">';
+    rec.numbers.forEach(n => {
+      html += '<span class="rec-num">' + String(n).padStart(2, '0') + '</span>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+  document.getElementById('recResult').innerHTML = html;
+}
+</script>
+</body>
+</html>
