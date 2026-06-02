@@ -100,7 +100,7 @@
   .stat-box:nth-child(4) .stat-val { color: #f39c12; }
 
   .hot-cold-row { display: flex; gap: 24px; padding: 0 20px 20px; flex-wrap: wrap; }
-  .hc-col { flex: 1; min-width: 280px; }
+  .hc-col { flex: 1; min-width: 220px; }
   .hc-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
   .hc-title .dot { width: 10px; height: 10px; border-radius: 50%; }
   .hc-list { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -430,6 +430,7 @@ function renderResults(data, charts) {
   const sortedFreq = Object.entries(freq).sort((a, b) => b[1] - a[1]);
   const hot10 = sortedFreq.slice(0, 10);
   const cold10 = sortedFreq.slice(-10).reverse();
+  const warmList = sortedFreq.filter(([n, c]) => c >= 22 && c < 28).slice(0, 10);
 
   html += '<div class="card"><div class="card-title">&#127922; 开奖号码列表 <span class="count-badge">共 ' + data.length + ' 期</span></div>';
   html += '<div class="period-list">';
@@ -463,14 +464,23 @@ function renderResults(data, charts) {
   html += '<div id="comparePanel"></div>';
 
   // 热号冷号
-  html += '<div class="card"><div class="card-title">&#128293; 热号冷号分析</div>';
+  html += '<div class="card"><div class="card-title">&#128293; 热号温号冷号分析</div>';
   html += '<div class="hot-cold-row">';
-  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#e74c3c"></span> 热号 TOP10</div><div class="hc-list">';
+  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#e74c3c"></span> 热号 TOP10 (&ge;28次)</div><div class="hc-list">';
   hot10.forEach(([n, c]) => {
     html += '<div class="hc-item"><div class="hc-num" style="color:#e74c3c">' + n + '</div><div class="hc-freq">' + c + '次</div></div>';
   });
   html += '</div></div>';
-  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#95a5a6"></span> 冷号 TOP10</div><div class="hc-list">';
+  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#e67e22"></span> 温号 (22-27次)</div><div class="hc-list">';
+  if (warmList.length > 0) {
+    warmList.forEach(([n, c]) => {
+      html += '<div class="hc-item"><div class="hc-num" style="color:#e67e22">' + n + '</div><div class="hc-freq">' + c + '次</div></div>';
+    });
+  } else {
+    html += '<div style="color:#aaa;font-size:13px;padding:8px">暂无温号</div>';
+  }
+  html += '</div></div>';
+  html += '<div class="hc-col"><div class="hc-title"><span class="dot" style="background:#95a5a6"></span> 冷号 TOP10 (&lt;14次)</div><div class="hc-list">';
   cold10.forEach(([n, c]) => {
     html += '<div class="hc-item"><div class="hc-num" style="color:#95a5a6">' + n + '</div><div class="hc-freq">' + c + '次</div></div>';
   });
@@ -486,7 +496,7 @@ function renderResults(data, charts) {
 
   // 选号推荐
   html += '<div class="recommend-section">';
-  html += '<div class="card"><div class="card-title">&#128161; 智能选号推荐</div><div style="padding:20px">';
+  html += '<div class="card"><div class="card-title">&#128161; 智能选号推荐 <span class="count-badge">8种策略</span></div><div style="padding:20px">';
   html += '<p style="text-align:center;color:#888;margin-bottom:16px">选择要推荐的号码个数，系统将根据8种选号策略结合近100期数据生成推荐</p>';
   html += '<div class="pick-row">';
   for (let i = 1; i <= 8; i++) {
@@ -494,6 +504,15 @@ function renderResults(data, charts) {
   }
   html += '</div>';
   html += '<div id="recResult"></div>';
+  html += '</div></div>';
+  html += '<div class="card"><div class="card-title">&#128174; 温号精选推荐 <span class="count-badge">8种策略</span></div><div style="padding:20px">';
+  html += '<p style="text-align:center;color:#888;margin-bottom:16px">从温号池（频率处于中间60%的中频号码）中按8种策略生成推荐</p>';
+  html += '<div class="pick-row">';
+  for (let i = 1; i <= 8; i++) {
+    html += '<button class="btn-pick" onclick="getWarmRecommend(' + i + ', this)">' + i + ' 个号</button>';
+  }
+  html += '</div>';
+  html += '<div id="warmResult"></div>';
   html += '</div></div>';
   html += '</div>';
 
@@ -603,6 +622,7 @@ function renderTrendChart(data) {
 }
 
 function getRecommend(count, btn) {
+  const row = btn.closest('.pick-row');
   document.querySelectorAll('.btn-pick').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const container = document.getElementById('recResult');
@@ -613,6 +633,34 @@ function getRecommend(count, btn) {
     .then(res => {
       if (res.error) { container.innerHTML = '<div class="error">' + res.error + '</div>'; return; }
       renderRecommendations(res.recommendations);
+    })
+    .catch(e => { container.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; });
+}
+
+function getWarmRecommend(count, btn) {
+  const row = btn.closest('.pick-row');
+  row.querySelectorAll('.btn-pick').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const container = document.getElementById('warmResult');
+  container.innerHTML = '<div class="rec-loading"><span class="spinner" style="width:24px;height:24px;border-width:3px;border-top-color:#e67e22"></span><p style="margin-top:12px">正在生成温号推荐...</p></div>';
+
+  fetch('/api/warm?count=' + count)
+    .then(r => r.json())
+    .then(res => {
+      if (res.error) { container.innerHTML = '<div class="error">' + res.error + '</div>'; return; }
+      let html = '<div class="rec-grid">';
+      res.recommendations.forEach(rec => {
+        html += '<div class="rec-card">';
+        html += '<div class="rec-name">' + rec.name + '</div>';
+        html += '<div class="rec-desc">' + rec.desc + '</div>';
+        html += '<div class="rec-nums">';
+        rec.numbers.forEach(n => {
+          html += '<span class="rec-num">' + String(n).padStart(2, '0') + '</span>';
+        });
+        html += '</div></div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
     })
     .catch(e => { container.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; });
 }
@@ -632,6 +680,7 @@ function renderRecommendations(recs) {
   html += '</div>';
   document.getElementById('recResult').innerHTML = html;
 }
+
 </script>
 </body>
 </html>

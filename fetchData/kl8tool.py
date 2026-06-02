@@ -7,7 +7,7 @@ import io
 import base64
 import random
 from collections import Counter
-from itertools import chain
+from itertools import chain, combinations as comb
 
 import matplotlib
 matplotlib.use("Agg")
@@ -122,7 +122,6 @@ def missing_analysis(results):
         else:
             missing[n] = len(results)
     return missing
-
 
 
 def odd_even_analysis(results):
@@ -579,43 +578,6 @@ def recommend(count, results):
     return output
 
 
-# ==================== 主函数 ====================
-
-
-def main():
-    print("正在获取福彩快乐8近30期开奖数据...\n")
-
-    xml_content = fetch_kl8_data()
-    if not xml_content:
-        print("获取数据失败，请检查网络连接")
-        return
-
-    results = parse_xml_data(xml_content, 30)
-    if not results:
-        print("解析数据失败")
-        return
-
-    print(f"成功获取 {len(results)} 期数据")
-    display_results(results)
-
-    # 统计分析
-    print("\n正在运行统计分析...")
-    print_analysis(results)
-
-    # 趋势图
-    print("\n正在生成趋势图...")
-    plot_frequency(results)
-    plot_trend(results)
-    plot_odd_even(results)
-    plot_missing(results)
-
-    print(f"\n所有图表已保存到: {OUTPUT_DIR}")
-
-
-if __name__ == "__main__":
-    main()
-
-
 # ==================== Web 接口 ====================
 
 
@@ -723,3 +685,211 @@ def generate_charts(results):
         "odd_even": _plot_odd_even_b64(results),
         "missing": _plot_missing_b64(results),
     }
+
+
+
+WARM_STRATEGIES = [
+    {
+        "id": "warm_hot",
+        "name": "温号高频",
+        "desc": "从温号池中选取出现频率最高的号码，追温不追冷",
+    },
+    {
+        "id": "warm_rebound",
+        "name": "温号回补",
+        "desc": "选取温号池中遗漏期数较高的号码，博反弹机会",
+    },
+    {
+        "id": "warm_recent",
+        "name": "温号近期",
+        "desc": "选取温号池中近期活跃度（加权频率）最高的号码",
+    },
+    {
+        "id": "warm_zone",
+        "name": "温号均衡",
+        "desc": "从温号池中按四区（1-20/21-40/41-60/61-80）等比选号",
+    },
+    {
+        "id": "warm_oddeven",
+        "name": "温号奇偶",
+        "desc": "从温号池中奇偶均衡选取号码组合",
+    },
+    {
+        "id": "warm_sum",
+        "name": "温号和值",
+        "desc": "控制所选温号和值接近历史平均值，避免极端",
+    },
+    {
+        "id": "warm_seq",
+        "name": "温号连号",
+        "desc": "从温号池中包含1-2组连号的选号策略",
+    },
+    {
+        "id": "warm_composite",
+        "name": "温号综合",
+        "desc": "综合频率、遗漏、近期、区间、奇偶多维度加权选号",
+    },
+]
+
+
+def _warm_hot(count, freq, missing, warm_pool):
+    """温号高频 — 温号池内按频率排序选最高频"""
+    pool = [(freq[n], n) for n in warm_pool]
+    pool.sort(key=lambda x: -x[0])
+    return sorted([n for _, n in pool[:count]])
+
+
+def _warm_rebound(count, freq, missing, warm_pool):
+    """温号回补 — 温号池内遗漏期数高的优先，博冷门回补"""
+    pool = [(missing[n], freq[n], n) for n in warm_pool]
+    pool.sort(key=lambda x: (-x[0], -x[1]))
+    return sorted([n for _, _, n in pool[:count]])
+
+
+def _warm_recent(count, freq, missing, warm_pool):
+    """温号近期 — 温号池内按近期加权频率排序"""
+    wfreq = _current_wfreq
+    pool = [(wfreq.get(n, 0), freq[n], n) for n in warm_pool]
+    pool.sort(key=lambda x: (-x[0], -x[1]))
+    return sorted([n for _, _, n in pool[:count]])
+
+
+def _warm_zone(count, freq, missing, warm_pool):
+    """温号均衡 — 温号池内四区等比选号"""
+    zones = [(1, 20), (21, 40), (41, 60), (61, 80)]
+    per_zone = max(1, count // 4)
+    remainder = count - per_zone * 4
+    result = []
+    for i, (lo, hi) in enumerate(zones):
+        n = per_zone + (1 if i < remainder else 0)
+        zone_pool = [(freq[num], num) for num in warm_pool if lo <= num <= hi]
+        zone_pool.sort(key=lambda x: -x[0])
+        result.extend([p[1] for p in zone_pool[:n]])
+    return sorted(result)
+
+
+def _warm_oddeven(count, freq, missing, warm_pool):
+    """温号奇偶 — 温号池内奇偶均衡"""
+    odd_count = count // 2 + (count % 2)
+    even_count = count - odd_count
+    odd_pool = [(freq[n], n) for n in warm_pool if n % 2 == 1]
+    even_pool = [(freq[n], n) for n in warm_pool if n % 2 == 0]
+    odd_pool.sort(key=lambda x: -x[0])
+    even_pool.sort(key=lambda x: -x[0])
+    result = [p[1] for p in odd_pool[:odd_count]] + [p[1] for p in even_pool[:even_count]]
+    return sorted(result)
+
+
+def _warm_sum(count, freq, missing, warm_pool):
+    """温号和值 — 温号池内控制和值接近理论均值"""
+    target = count * 40.5
+    pool = sorted([(freq[n], n) for n in warm_pool], key=lambda x: -x[0])
+    selected = []
+    cur = 0
+    for _, num in pool:
+        if len(selected) >= count:
+            break
+        selected.append(num)
+        cur += num
+    all_nums = sorted(warm_pool)
+    for _ in range(50):
+        if abs(cur - target) < 2:
+            break
+        idx = random.randint(0, len(selected) - 1)
+        old = selected[idx]
+        for cand in all_nums:
+            if cand not in selected:
+                new_sum = cur - old + cand
+                if abs(new_sum - target) < abs(cur - target):
+                    selected[idx] = cand
+                    cur = new_sum
+                    break
+    return sorted(selected)
+
+
+def _warm_seq(count, freq, missing, warm_pool):
+    """温号连号 — 温号池内优先包含连号组合"""
+    sorted_freq = sorted([(freq[n], n) for n in warm_pool], key=lambda x: -x[0])
+    top = [n for _, n in sorted_freq]
+    pairs = []
+    for i in range(len(top) - 1):
+        a, b = top[i], top[i + 1]
+        if b == a + 1:
+            pairs.append((a, b))
+    result = []
+    used = set()
+    if pairs:
+        result.extend(list(pairs[0]))
+        used.update(pairs[0])
+    for p in pairs[1:]:
+        if len(result) >= count:
+            break
+        for n in p:
+            if n not in used and len(result) < count:
+                result.append(n)
+                used.add(n)
+    for n in top:
+        if len(result) >= count:
+            break
+        if n not in used:
+            result.append(n)
+            used.add(n)
+    return sorted(result[:count])
+
+
+def _warm_composite(count, freq, missing, warm_pool):
+    """温号综合 — 温号池内多维度加权评分"""
+    wfreq = _current_wfreq
+    scores = {}
+    max_freq = max(freq[n] for n in warm_pool) if warm_pool else 1
+    max_miss = max(missing[n] for n in warm_pool) if warm_pool else 1
+    max_wfreq = max(wfreq.get(n, 0) for n in warm_pool) if warm_pool else 1
+    for n in warm_pool:
+        f_score = (freq.get(n, 0) / max_freq) * 25
+        wf_score = (wfreq.get(n, 0) / max_wfreq) * 25 if max_wfreq > 0 else 0
+        m = missing.get(n, 0)
+        m_score = min(m / max_miss, 0.6) * 20 if max_miss > 0 else 0
+        zone_idx = (n - 1) // 20
+        z_score = 15 - abs(zone_idx - 1.5) * 4
+        oe_score = 10 if n % 2 == 1 else 8
+        pos_score = 5 - abs(n - 40) / 40 * 5
+        scores[n] = f_score + wf_score + m_score + z_score + oe_score + pos_score
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
+WARM_RECOMMEND_FUNCS = {
+    "warm_hot": _warm_hot,
+    "warm_rebound": _warm_rebound,
+    "warm_recent": _warm_recent,
+    "warm_zone": _warm_zone,
+    "warm_oddeven": _warm_oddeven,
+    "warm_sum": _warm_sum,
+    "warm_seq": _warm_seq,
+    "warm_composite": _warm_composite,
+}
+
+
+def _recommend_warm(count, freq, missing):
+    """基于温号池（频率处于中间60%的中频号码）的多策略推荐"""
+    # 动态计算温号池：取频率排序后中间60%的号码
+    sorted_freq = sorted(freq.items(), key=lambda x: x[1])
+    n_total = len(sorted_freq)
+    lo = max(0, int(n_total * 0.20))
+    hi = min(n_total, int(n_total * 0.80))
+    warm_pool = set([n for n, _ in sorted_freq[lo:hi]])
+    if len(warm_pool) < count:
+        # 池太小则从高频区补足
+        extra = [n for n, _ in reversed(sorted_freq[:lo])]
+        warm_pool.update(extra[:count - len(warm_pool)])
+
+    output = []
+    for s in WARM_STRATEGIES:
+        nums = WARM_RECOMMEND_FUNCS[s["id"]](count, freq, missing, warm_pool)
+        output.append({
+            "id": s["id"],
+            "name": s["name"],
+            "desc": s["desc"],
+            "numbers": nums,
+        })
+    return output
