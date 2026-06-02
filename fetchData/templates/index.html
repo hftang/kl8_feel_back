@@ -61,8 +61,16 @@
     background: linear-gradient(145deg, #f1948a, #e74c3c);
     box-shadow: inset 0 -2px 4px rgba(0,0,0,.15), 0 2px 6px rgba(231,76,60,.3);
   }
-  .ball-cold {
-    background: linear-gradient(145deg, #bdc3c7, #95a5a6) !important;
+  .ball.warm {
+    background: linear-gradient(145deg, #f5b041, #e67e22);
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,.15), 0 2px 6px rgba(230,126,34,.3);
+  }
+  .ball.normal {
+    background: linear-gradient(145deg, #5dade2, #2e86c1);
+  }
+  .ball.cold {
+    background: linear-gradient(145deg, #bdc3c7, #95a5a6);
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,.1), 0 2px 4px rgba(0,0,0,.08);
   }
 
   /* 分隔线 */
@@ -72,6 +80,8 @@
 
   .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .chart-img { width: 100%; height: auto; }
+  .trend-chart-wrap { padding: 12px 16px 16px; }
+  .trend-chart-wrap canvas { width: 100% !important; max-height: 320px; }
   @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 
   .placeholder { text-align: center; padding: 80px 20px; color: #aaa; }
@@ -139,18 +149,87 @@
   .rec-card:nth-child(8) .rec-num { background: #34495e; }
 
   .rec-loading { text-align: center; padding: 40px; color: #aaa; }
+
+  /* 行选择 */
+  .period-card { position: relative; }
+  .period-card .sel-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 2px solid #d0d5dd;
+    background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all .15s; font-size: 14px; color: transparent;
+  }
+  .period-card .sel-btn:hover { border-color: #e74c3c; background: #fff5f5; }
+  .period-card.selected .sel-btn {
+    border-color: #e74c3c; background: #e74c3c; color: #fff;
+  }
+  .period-card.selected { background: #fff0ee !important; box-shadow: 0 2px 8px rgba(231,76,60,.12); }
+
+  /* 浮动操作栏 */
+  .select-bar {
+    position: sticky; top: 0; z-index: 10; background: #2c3e50; color: #fff;
+    padding: 12px 20px; border-radius: 10px; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  }
+  .select-bar .sel-count { font-weight: 700; font-size: 15px; }
+  .select-bar .sel-actions { margin-left: auto; display: flex; gap: 10px; }
+  .select-bar .sel-actions button {
+    padding: 6px 16px; border-radius: 20px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .15s;
+  }
+  .btn-sel-clear { background: rgba(255,255,255,.15); color: #fff; }
+  .btn-sel-clear:hover { background: rgba(255,255,255,.25); }
+  .btn-sel-compare { background: #e74c3c; color: #fff; }
+  .btn-sel-compare:hover { background: #c0392b; }
+
+  /* 对比面板 */
+  .compare-panel { margin-top: 0; }
+  .compare-table-wrap { overflow-x: auto; padding: 0 20px 20px; }
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .compare-table th {
+    background: #f0f2f5; padding: 10px 12px; text-align: left; font-weight: 600;
+    white-space: nowrap; border-bottom: 2px solid #e0e0e0; position: sticky; top: 0;
+  }
+  .compare-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .compare-table tr:hover td { background: #fafbfc; }
+  .compare-table .ball-sm {
+    width: 26px; height: 26px; border-radius: 50%; font-size: 11px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; margin: 1px;
+    background: linear-gradient(145deg, #5dade2, #2e86c1);
+    box-shadow: inset 0 -1px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.1);
+  }
+  .compare-table .ball-sm.hot {
+    background: linear-gradient(145deg, #f1948a, #e74c3c);
+  }
+  .compare-table .ball-sm.warm {
+    background: linear-gradient(145deg, #f5b041, #e67e22);
+  }
+  .compare-table .ball-sm.cold {
+    background: linear-gradient(145deg, #bdc3c7, #95a5a6);
+  }
+  .compare-empty { text-align: center; padding: 40px 20px; color: #aaa; font-size: 14px; }
+  .compare-stats { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px 20px; border-top: 1px solid #eee; }
+  .compare-stat-item { text-align: center; }
+  .compare-stat-val { font-size: 20px; font-weight: 700; color: #2c3e50; }
+  .compare-stat-label { font-size: 11px; color: #95a5a6; margin-top: 2px; }
+  .compare-highlight { background: #fffde7; }
+  .compare-table .col-remove {
+    width: 32px; text-align: center; cursor: pointer; color: #ccc; font-size: 16px;
+  }
+  .compare-table .col-remove:hover { color: #e74c3c; }
+
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
 <div class="header">
   <h1>&#127922; 福彩快乐8 数据分析</h1>
-  <p>近50期开奖数据统计与趋势分析 + 智能选号推荐</p>
+  <p>近100期开奖数据统计与趋势分析 + 智能选号推荐</p>
 </div>
 
 <div class="container">
   <div class="btn-row">
-    <button class="btn-fetch" id="fetchBtn" onclick="fetchData()">&#9889; 获取近50期数据</button>
+    <button class="btn-fetch" id="fetchBtn" onclick="fetchData()">&#9889; 获取近100期数据</button>
   </div>
 
   <div id="content">
@@ -165,6 +244,132 @@
 const hotNumbers = new Set();
 let savedData = null;
 let savedCharts = null;
+
+const warmNumbers = new Set();
+const coldNumbers = new Set();
+const selectedPeriods = new Set();
+
+function toggleSelect(idx) {
+  if (selectedPeriods.has(idx)) {
+    selectedPeriods.delete(idx);
+  } else {
+    selectedPeriods.add(idx);
+  }
+  updateSelectUI();
+}
+
+function clearSelection() {
+  selectedPeriods.clear();
+  updateSelectUI();
+}
+
+function removeSelected(idx) {
+  selectedPeriods.delete(idx);
+  updateSelectUI();
+}
+
+function updateSelectUI() {
+  // Update row styles
+  document.querySelectorAll('.period-card').forEach(card => {
+    const idx = parseInt(card.dataset.idx);
+    if (selectedPeriods.has(idx)) {
+      card.classList.add('selected');
+      card.querySelector('.sel-btn').innerHTML = '\u2713';
+    } else {
+      card.classList.remove('selected');
+      card.querySelector('.sel-btn').innerHTML = '';
+    }
+  });
+
+  // Update select bar
+  const bar = document.getElementById('selectBar');
+  if (selectedPeriods.size > 0) {
+    bar.style.display = 'flex';
+    bar.querySelector('.sel-count').textContent = '\u2714 已选 ' + selectedPeriods.size + ' 期';
+  } else {
+    bar.style.display = 'none';
+  }
+
+  // Update comparison panel
+  renderCompare();
+}
+
+function renderCompare() {
+  const panel = document.getElementById('comparePanel');
+  if (!savedData || selectedPeriods.size === 0) {
+    panel.innerHTML = '';
+    return;
+  }
+
+  const selected = Array.from(selectedPeriods).sort((a, b) => a - b).map(i => ({ idx: i, ...savedData[i] }));
+
+  let html = '<div class="card compare-panel"><div class="card-title">\ud83d\udcca 选中期数对比 <span class="count-badge">' + selected.length + ' 期</span></div>';
+
+  html += '<div class="compare-table-wrap"><table class="compare-table"><thead><tr>';
+  html += '<th></th><th>期号</th><th>开奖日期</th><th>开奖号码</th><th>和值</th><th>奇数</th><th>偶数</th><th>大号(41-80)</th><th>小号(1-40)</th>';
+  html += '</tr></thead><tbody>';
+
+  const sums = [];
+  const odds = [];
+  const evens = [];
+  const bigs = [];
+  const smalls = [];
+
+  selected.forEach(r => {
+    const nums = r.numbers.map(n => parseInt(n));
+    const sum = nums.reduce((a, b) => a + b, 0);
+    const odd = nums.filter(n => n % 2 === 1).length;
+    const even = 20 - odd;
+    const big = nums.filter(n => n > 40).length;
+    const small = 20 - big;
+    sums.push(sum); odds.push(odd); evens.push(even); bigs.push(big); smalls.push(small);
+
+    html += '<tr>';
+    html += '<td class="col-remove" onclick="removeSelected(' + r.idx + ')" title="移除">\u2716</td>';
+    html += '<td><strong>' + r.period + '</strong></td>';
+    html += '<td>' + r.date + '</td>';
+    html += '<td>';
+    r.numbers.forEach(n => {
+      const v = parseInt(n);
+      let cls = 'ball-sm';
+      if (hotNumbers.has(v)) cls = 'ball-sm hot';
+      else if (warmNumbers.has(v)) cls = 'ball-sm warm';
+      else if (coldNumbers.has(v)) cls = 'ball-sm cold';
+      html += '<span class="' + cls + '">' + String(v).padStart(2, '0') + '</span>';
+    });
+    html += '</td>';
+    html += '<td><strong>' + sum + '</strong></td>';
+    html += '<td>' + odd + '</td>';
+    html += '<td>' + even + '</td>';
+    html += '<td>' + big + '</td>';
+    html += '<td>' + small + '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+
+  // Summary stats
+  if (selected.length > 1) {
+    const avgSum = (sums.reduce((a,b)=>a+b,0) / sums.length).toFixed(1);
+    const avgOdd = (odds.reduce((a,b)=>a+b,0) / odds.length).toFixed(1);
+    const avgEven = (evens.reduce((a,b)=>a+b,0) / evens.length).toFixed(1);
+    const avgBig = (bigs.reduce((a,b)=>a+b,0) / bigs.length).toFixed(1);
+    const avgSmall = (smalls.reduce((a,b)=>a+b,0) / smalls.length).toFixed(1);
+    const maxSum = Math.max(...sums);
+    const minSum = Math.min(...sums);
+
+    html += '<div class="compare-stats">';
+    html += '<div class="compare-stat-item"><div class="compare-stat-val">' + avgSum + '</div><div class="compare-stat-label">平均和值</div></div>';
+    html += '<div class="compare-stat-item"><div class="compare-stat-val">' + minSum + ' ~ ' + maxSum + '</div><div class="compare-stat-label">和值范围</div></div>';
+    html += '<div class="compare-stat-item"><div class="compare-stat-val">' + avgOdd + ' / ' + avgEven + '</div><div class="compare-stat-label">平均奇/偶</div></div>';
+    html += '<div class="compare-stat-item"><div class="compare-stat-val">' + avgBig + ' / ' + avgSmall + '</div><div class="compare-stat-label">平均大/小</div></div>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
 
 function fetchData() {
   const btn = document.getElementById('fetchBtn');
@@ -182,14 +387,21 @@ function fetchData() {
       renderResults(res.data, res.charts);
     })
     .catch(e => { content.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; })
-    .finally(() => { btn.disabled = false; btn.innerHTML = '⚡ 获取近50期数据'; });
+    .finally(() => { btn.disabled = false; btn.innerHTML = '⚡ 获取近100期数据'; });
 }
 
 function renderResults(data, charts) {
   const freq = {};
   data.forEach(r => r.numbers.forEach(n => { const v = parseInt(n); freq[v] = (freq[v] || 0) + 1; }));
   hotNumbers.clear();
-  Object.entries(freq).forEach(([n, c]) => { if (c >= 12) hotNumbers.add(parseInt(n)); });
+  warmNumbers.clear();
+  coldNumbers.clear();
+  Object.entries(freq).forEach(([n, c]) => {
+    const v = parseInt(n);
+    if (c >= 28) hotNumbers.add(v);
+    else if (c >= 22) warmNumbers.add(v);
+    else if (c < 14) coldNumbers.add(v);
+  });
 
   const totalNums = data.length * 20;
   const avgSum = data.reduce((s, r) => s + r.numbers.reduce((a, b) => a + parseInt(b), 0), 0) / data.length;
@@ -205,6 +417,13 @@ function renderResults(data, charts) {
   html += '<div class="stat-box"><div class="stat-val">' + totalNums + '</div><div class="stat-label">总开奖号码</div></div>';
   html += '<div class="stat-box"><div class="stat-val">' + avgSum.toFixed(0) + '</div><div class="stat-label">平均和值</div></div>';
   html += '<div class="stat-box"><div class="stat-val">' + maxFreq + ' / ' + minFreq + '</div><div class="stat-label">最高 / 最低频次</div></div>';
+  html += '</div>';
+  html += '<div style="padding:0 20px 16px;display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12px">';
+  html += '<span style="color:#888">图例:</span>';
+  html += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(145deg,#f1948a,#e74c3c);display:inline-block"></span> 热号(&ge;28次)</span>';
+  html += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(145deg,#f5b041,#e67e22);display:inline-block"></span> 温号(22-27次)</span>';
+  html += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(145deg,#5dade2,#2e86c1);display:inline-block"></span> 普通(14-21次)</span>';
+  html += '<span style="display:inline-flex;align-items:center;gap:4px"><span style="width:14px;height:14px;border-radius:50%;background:linear-gradient(145deg,#bdc3c7,#95a5a6);display:inline-block"></span> 冷号(&lt;14次)</span>';
   html += '</div></div>';
 
   // 开奖号码列表
@@ -216,19 +435,32 @@ function renderResults(data, charts) {
   html += '<div class="period-list">';
   data.forEach((r, i) => {
     const sum = r.numbers.reduce((a, b) => a + parseInt(b), 0);
-    html += '<div class="period-card">';
+    html += '<div class="period-card" data-idx="' + i + '">';
+    html += '<div class="sel-btn" onclick="toggleSelect(' + i + ')"></div>';
     html += '<div class="period-idx">' + (i + 1) + '</div>';
     html += '<div class="period-info"><div class="period-num">' + r.period + '</div><div class="period-date">' + r.date + ' &middot; 和值 ' + sum + '</div></div>';
     html += '<div class="sep"></div>';
     html += '<div class="ball-row">';
     r.numbers.forEach(n => {
       const v = parseInt(n);
-      const cls = hotNumbers.has(v) ? 'ball hot' : 'ball';
+      const cls = hotNumbers.has(v) ? 'ball hot' : warmNumbers.has(v) ? 'ball warm' : coldNumbers.has(v) ? 'ball cold' : 'ball normal';
       html += '<div class="' + cls + '">' + String(v).padStart(2, '0') + '</div>';
     });
     html += '</div></div>';
   });
+  html += '</div>';
+
+  // 选择操作栏
+  html += '<div id="selectBar" class="select-bar" style="display:none">';
+  html += '<span class="sel-count"></span>';
+  html += '<div class="sel-actions">';
+  html += '<button class="btn-sel-clear" onclick="clearSelection()">\u2716 清除选择</button>';
   html += '</div></div>';
+
+  html += '</div>';
+
+  // 对比面板容器
+  html += '<div id="comparePanel"></div>';
 
   // 热号冷号
   html += '<div class="card"><div class="card-title">&#128293; 热号冷号分析</div>';
@@ -247,7 +479,7 @@ function renderResults(data, charts) {
   // 图表
   html += '<div class="charts-grid">';
   html += '<div class="card"><div class="card-title">&#128200; 号码出现频率</div><img class="chart-img" src="data:image/png;base64,' + charts.frequency + '"></div>';
-  html += '<div class="card"><div class="card-title">&#128201; 和值趋势</div><img class="chart-img" src="data:image/png;base64,' + charts.trend + '"></div>';
+  html += '<div class="card"><div class="card-title">&#128201; 和值趋势</div><div class="trend-chart-wrap"><canvas id="trendCanvas"></canvas></div></div>';
   html += '<div class="card"><div class="card-title">&#9878; 奇偶比走势</div><img class="chart-img" src="data:image/png;base64,' + charts.odd_even + '"></div>';
   html += '<div class="card"><div class="card-title">&#128269; 号码遗漏分析</div><img class="chart-img" src="data:image/png;base64,' + charts.missing + '"></div>';
   html += '</div>';
@@ -255,7 +487,7 @@ function renderResults(data, charts) {
   // 选号推荐
   html += '<div class="recommend-section">';
   html += '<div class="card"><div class="card-title">&#128161; 智能选号推荐</div><div style="padding:20px">';
-  html += '<p style="text-align:center;color:#888;margin-bottom:16px">选择要推荐的号码个数，系统将根据8种选号策略结合近50期数据生成推荐</p>';
+  html += '<p style="text-align:center;color:#888;margin-bottom:16px">选择要推荐的号码个数，系统将根据8种选号策略结合近100期数据生成推荐</p>';
   html += '<div class="pick-row">';
   for (let i = 1; i <= 8; i++) {
     html += '<button class="btn-pick" onclick="getRecommend(' + i + ', this)">' + i + ' 个号</button>';
@@ -266,6 +498,108 @@ function renderResults(data, charts) {
   html += '</div>';
 
   document.getElementById('content').innerHTML = html;
+  // Restore selection UI if any
+  if (selectedPeriods.size > 0) updateSelectUI();
+  // Render interactive trend chart
+  renderTrendChart(data);
+}
+
+function renderTrendChart(data) {
+  const canvas = document.getElementById('trendCanvas');
+  if (!canvas || !data || data.length === 0) return;
+
+  // Data is newest first, reverse for chronological order
+  const sorted = [...data].reverse();
+  const labels = sorted.map(r => r.period.slice(-4));
+  const sums = sorted.map(r => r.numbers.reduce((a, b) => a + parseInt(b), 0));
+  const avg = sums.reduce((a, b) => a + b, 0) / sums.length;
+
+  const ctx = canvas.getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: '和值',
+          data: sums,
+          borderColor: '#2ecc71',
+          backgroundColor: 'rgba(46,204,113,0.1)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointBackgroundColor: '#2ecc71',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointHoverBackgroundColor: '#e74c3c',
+          pointHoverBorderColor: '#fff',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: '平均值 (' + avg.toFixed(0) + ')',
+          data: Array(sums.length).fill(avg),
+          borderColor: '#e74c3c',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false,
+      },
+      plugins: {
+        tooltip: {
+          backgroundColor: 'rgba(44,62,80,0.95)',
+          titleFont: { size: 13, weight: 'bold' },
+          bodyFont: { size: 12 },
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            title: function(items) {
+              const idx = items[0].dataIndex;
+              return '第 ' + sorted[idx].period + ' 期  (' + sorted[idx].date + ')';
+            },
+            label: function(item) {
+              if (item.datasetIndex === 0) {
+                return '和值: ' + item.raw;
+              }
+              return '平均值: ' + item.raw.toFixed(1);
+            },
+            afterBody: function(items) {
+              const idx = items[0].dataIndex;
+              const s = sums[idx];
+              const diff = s - avg;
+              const sign = diff >= 0 ? '+' : '';
+              return ['偏离均值: ' + sign + diff.toFixed(1)];
+            },
+          },
+        },
+        legend: {
+          position: 'top',
+          labels: { usePointStyle: true, padding: 16, font: { size: 12 } },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 45, font: { size: 10 }, maxTicksLimit: 25 },
+          grid: { display: false },
+        },
+        y: {
+          ticks: { font: { size: 11 } },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+      },
+    },
+  });
 }
 
 function getRecommend(count, btn) {

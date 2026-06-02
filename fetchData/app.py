@@ -18,7 +18,7 @@ def api_fetch():
     if not xml:
         return jsonify({"error": "获取数据失败，请检查网络连接"}), 502
 
-    results = parse_xml_data(xml, 50)
+    results = parse_xml_data(xml, 100)
     if not results:
         return jsonify({"error": "解析数据失败"}), 500
 
@@ -38,7 +38,7 @@ def api_recommend():
     if not xml:
         return jsonify({"error": "获取数据失败"}), 502
 
-    results = parse_xml_data(xml, 50)
+    results = parse_xml_data(xml, 100)
     if not results:
         return jsonify({"error": "解析数据失败"}), 500
 

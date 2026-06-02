@@ -19,6 +19,8 @@ plt.rcParams["axes.unicode_minus"] = False
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+_current_wfreq = {}
+
 
 def fetch_kl8_data():
     """从500彩票网XML接口获取快乐8开奖数据"""
@@ -88,6 +90,17 @@ def frequency_analysis(results):
     all_numbers = [int(x) for x in chain.from_iterable(r["numbers"] for r in results)]
     counter = Counter(all_numbers)
     return {n: counter.get(n, 0) for n in range(1, 81)}
+
+
+def recency_weighted_frequency(results, decay=0.97):
+    """近期加权频率: 最近一期权重最高, 按decay指数衰减"""
+    weighted = {}
+    for i, r in enumerate(results):
+        weight = decay ** i  # i=0是最近一期, 权重最大
+        for n in r["numbers"]:
+            v = int(n)
+            weighted[v] = weighted.get(v, 0) + weight
+    return {n: round(weighted.get(n, 0), 2) for n in range(1, 81)}
 
 
 def hot_cold_analysis(freq_dict, top_n=10):
@@ -213,7 +226,7 @@ def plot_frequency(results):
     counts = [freq[n] for n in numbers]
 
     fig, ax = plt.subplots(figsize=(18, 6))
-    colors = ["#e74c3c" if c >= 10 else "#3498db" if c >= 7 else "#95a5a6" for c in counts]
+    colors = ["#e74c3c" if c >= 20 else "#3498db" if c >= 14 else "#95a5a6" for c in counts]
     ax.bar(numbers, counts, color=colors, edgecolor="white", linewidth=0.5)
 
     ax.set_xlabel("号码", fontsize=12)
@@ -226,9 +239,9 @@ def plot_frequency(results):
     # 图例
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor="#e74c3c", label="热号 (≥10次)"),
-        Patch(facecolor="#3498db", label="温号 (7-9次)"),
-        Patch(facecolor="#95a5a6", label="冷号 (<7次)"),
+        Patch(facecolor="#e74c3c", label="热号 (≥20次)"),
+        Patch(facecolor="#3498db", label="温号 (14-19次)"),
+        Patch(facecolor="#95a5a6", label="冷号 (<14次)"),
     ]
     ax.legend(handles=legend_elements, loc="upper right")
 
@@ -337,7 +350,7 @@ STRATEGIES = [
     {
         "id": "hot",
         "name": "热号追踪",
-        "desc": "选取近50期出现频率最高的号码，追热不追冷",
+        "desc": "选取近100期出现频率最高的号码，追热不追冷",
     },
     {
         "id": "cold_rebound",
@@ -378,24 +391,43 @@ STRATEGIES = [
 
 
 def _recommend_hot(count, freq, missing):
-    """热号追踪"""
-    sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], x[0]))
-    nums = [n for n, _ in sorted_freq[:count]]
-    return sorted(nums)
+    """热号追踪 — 近期加权频率排序, 追热不追冷"""
+    wfreq = _current_wfreq
+    ranked = sorted(wfreq.items(), key=lambda x: (-x[1], x[0]))
+    return sorted([n for n, _ in ranked[:count]])
 
 
 def _recommend_cold_rebound(count, freq, missing):
-    """冷号回补 — 选出现次数最少的号码"""
-    sorted_freq = sorted(freq.items(), key=lambda x: (x[1], x[0]))
-    nums = [n for n, _ in sorted_freq[:count]]
-    return sorted(nums)
+    """冷号回补 — 总频率低但近期有回暖迹象的号码"""
+    wfreq = _current_wfreq
+    max_freq = max(freq.values()) if freq else 1
+    max_miss = max(missing.values()) if missing else 1
+    # 得分: 遗漏高(说明长期没出) + 近期加权频率非零(说明最近有动静)
+    scores = {}
+    for n in range(1, 81):
+        miss_score = missing.get(n, 0) / max_miss * 60  # 遗漏越高越该回补
+        freq_penalty = freq.get(n, 0) / max_freq * 30   # 总频率越高扣分
+        recent_bonus = min(wfreq.get(n, 0) / max(wfreq.values()) * 20, 20)  # 近期有出现加分
+        scores[n] = miss_score - freq_penalty + recent_bonus
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
 
 
 def _recommend_missing(count, freq, missing):
-    """遗漏反弹 — 选遗漏期数最多的号码"""
-    sorted_miss = sorted(missing.items(), key=lambda x: (-x[1], x[0]))
-    nums = [n for n, _ in sorted_miss[:count]]
-    return sorted(nums)
+    """遗漏反弹 — 遗漏期数最高且历史上出现间隔有规律的号码"""
+    max_miss = max(missing.values()) if missing else 1
+    max_freq = max(freq.values()) if freq else 1
+    scores = {}
+    for n in range(1, 81):
+        m = missing.get(n, 0)
+        f = freq.get(n, 0)
+        # 遗漏高得分高, 但历史频率不能太低(完全不出的号可能是真的冷)
+        miss_score = m / max_miss * 50
+        freq_bonus = f / max_freq * 30  # 历史上出过才有可能反弹
+        overdue = max(0, m - f / max_freq * max_miss) * 0.5  # 超期值
+        scores[n] = miss_score + freq_bonus + overdue
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
 
 
 def _recommend_zone_balance(count, freq, missing):
@@ -491,23 +523,28 @@ def _recommend_consecutive(count, freq, missing):
 
 
 def _recommend_composite(count, freq, missing):
-    """综合推荐 — 多维度加权"""
+    """综合推荐 — 多维度加权(含近期趋势)"""
+    wfreq = _current_wfreq
     scores = {}
     max_freq = max(freq.values()) if freq else 1
     max_miss = max(missing.values()) if missing else 1
+    max_wfreq = max(wfreq.values()) if wfreq else 1
     for n in range(1, 81):
-        # 频率得分(0-30)
-        f_score = (freq.get(n, 0) / max_freq) * 30
-        # 遗漏得分(0-25) — 遗漏越高得分越高
-        m_score = (missing.get(n, 0) / max_miss) * 25
-        # 区间得分(0-20) — 均衡
+        # 总频率得分(0-25)
+        f_score = (freq.get(n, 0) / max_freq) * 25
+        # 近期加权频率(0-25) — 最近出得多的号更活跃
+        wf_score = (wfreq.get(n, 0) / max_wfreq) * 25
+        # 遗漏得分(0-20) — 适度遗漏有反弹价值
+        m = missing.get(n, 0)
+        m_score = min(m / max_miss, 0.6) * 20  # 遗漏超过60%封顶, 避免选太冷
+        # 区间均衡(0-15)
         zone_idx = (n - 1) // 20
-        z_score = 20 - abs(zone_idx - 1.5) * 5
-        # 奇偶得分(0-15)
-        oe_score = 15 if n % 2 == 1 else 12
-        # 位置分(0-10) — 中间段略优
-        pos_score = 10 - abs(n - 40) / 40 * 10
-        scores[n] = f_score + m_score + z_score + oe_score + pos_score
+        z_score = 15 - abs(zone_idx - 1.5) * 4
+        # 奇偶(0-10)
+        oe_score = 10 if n % 2 == 1 else 8
+        # 位置分(0-5)
+        pos_score = 5 - abs(n - 40) / 40 * 5
+        scores[n] = f_score + wf_score + m_score + z_score + oe_score + pos_score
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     return sorted([n for n, _ in ranked[:count]])
 
@@ -528,6 +565,8 @@ def recommend(count, results):
     """对每种策略生成推荐号码"""
     freq = frequency_analysis(results)
     missing = missing_analysis(results)
+    global _current_wfreq
+    _current_wfreq = recency_weighted_frequency(results)
     output = []
     for s in STRATEGIES:
         nums = RECOMMEND_FUNCS[s["id"]](count, freq, missing)
@@ -595,7 +634,7 @@ def _plot_frequency_b64(results):
     numbers = list(range(1, 81))
     counts = [freq[n] for n in numbers]
     fig, ax = plt.subplots(figsize=(16, 5))
-    colors = ["#e74c3c" if c >= 10 else "#3498db" if c >= 7 else "#95a5a6" for c in counts]
+    colors = ["#e74c3c" if c >= 20 else "#3498db" if c >= 14 else "#95a5a6" for c in counts]
     ax.bar(numbers, counts, color=colors, edgecolor="white", linewidth=0.5)
     ax.set_xlabel("号码", fontsize=11)
     ax.set_ylabel("出现次数", fontsize=11)
@@ -605,9 +644,9 @@ def _plot_frequency_b64(results):
     ax.set_xlim(0, 81)
     from matplotlib.patches import Patch
     ax.legend(handles=[
-        Patch(facecolor="#e74c3c", label="热号 (>=10次)"),
-        Patch(facecolor="#3498db", label="温号 (7-9次)"),
-        Patch(facecolor="#95a5a6", label="冷号 (<7次)"),
+        Patch(facecolor="#e74c3c", label="热号 (>=20次)"),
+        Patch(facecolor="#3498db", label="温号 (14-19次)"),
+        Patch(facecolor="#95a5a6", label="冷号 (<14次)"),
     ], loc="upper right")
     plt.tight_layout()
     return _fig_to_base64(fig)
