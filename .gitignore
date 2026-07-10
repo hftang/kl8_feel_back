@@ -4,6 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 *.png
-*.db
+# *.db  -- kl8.db is now tracked
 *.db-journal
 _debug.log
