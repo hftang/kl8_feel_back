@@ -218,7 +218,18 @@
   .compare-table .col-remove:hover { color: #e74c3c; }
 
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+<script>
+// 本地 Chart.js 加载失败时，才回落到公网 CDN
+if (typeof Chart === 'undefined') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"><\/script>');
+}
+</script>
+<script>
+if (typeof Chart === 'undefined') {
+  document.write('<script src="https://cdn.bootcdn.net/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
+}
+</script>
 </head>
 <body>
 
@@ -227,9 +238,18 @@
   <p>近100期开奖数据统计与趋势分析 + 智能选号推荐</p>
 </div>
 
+<div class="disclaimer-banner" style="max-width:1400px;margin:12px auto 0;padding:12px 18px;background:#fff3cd;border:1px solid #ffe58f;border-radius:6px;color:#5c3c00;font-size:13px;line-height:1.55;">
+  <strong>⚠ 理性提示：</strong>
+  快乐8每期从 1-80 中<strong>均匀随机</strong>抽取 20 个号码。任何"策略"选 k 个号码的<strong>期望命中数都是 k/4</strong>（选8个平均命中2个）。
+  本页面所有推荐仅供组合参考与娱乐分析，<strong>不能提高中奖率</strong>。
+  可点击「策略评估」查看每个策略在历史数据上的实际命中率 vs 基线的对比。请理性购彩。
+</div>
+
 <div class="container">
   <div class="btn-row">
     <button class="btn-fetch" id="fetchBtn" onclick="fetchData()">&#9889; 获取近100期数据</button>
+    <button class="btn-fetch" id="btBtn" onclick="showBacktest()" style="background:#6c5ce7;">&#128200; 策略评估</button>
+    <button class="btn-fetch" id="histBtn" onclick="showHistory()" style="background:#00b894;">&#128220; 历史推荐回顾</button>
   </div>
 
   <div id="content">
@@ -526,6 +546,16 @@ function renderResults(data, charts) {
 function renderTrendChart(data) {
   const canvas = document.getElementById('trendCanvas');
   if (!canvas || !data || data.length === 0) return;
+  // Chart.js 未加载（CDN 全线不可达）时降级：不画图，也不抛异常
+  if (typeof Chart === 'undefined') {
+    const parent = canvas.parentElement;
+    if (parent) {
+      parent.insertAdjacentHTML('beforeend',
+        '<div style="padding:20px;text-align:center;color:#888;font-size:12px;">' +
+        '（趋势图需要加载 Chart.js CDN，当前不可达。其它统计与图表功能不受影响。）</div>');
+    }
+    return;
+  }
 
   // Data is newest first, reverse for chronological order
   const sorted = [...data].reverse();
@@ -679,6 +709,145 @@ function renderRecommendations(recs) {
   });
   html += '</div>';
   document.getElementById('recResult').innerHTML = html;
+}
+
+
+// ==================== 策略评估视图（Phase 4 新增） ====================
+async function showBacktest() {
+  const btn = document.getElementById('btBtn');
+  btn.disabled = true; btn.textContent = '计算中…';
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="placeholder"><p>正在跑回测（对每一期用之前的数据算特征、和实际开奖对比），请稍候…</p></div>';
+  try {
+    const resp = await fetch('/api/backtest?count=8&window=50');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+    renderBacktest(data);
+  } catch (e) {
+    el.innerHTML = '<div class="placeholder"><p>回测失败：' + (e.message || e) + '</p><p style="font-size:12px;color:#888;">若提示历史期数不足，请多次点击「获取数据」以在数据库中累积历史。</p></div>';
+  } finally {
+    btn.disabled = false; btn.textContent = '📈 策略评估';
+  }
+}
+
+function renderBacktest(data) {
+  const baseline = data.baseline_mean;
+  const strategies = data.strategies || [];
+  const maxMean = Math.max(baseline * 1.5, ...strategies.map(s => Math.max(s.ci_high, s.mean_hits)));
+  let html = '';
+  html += '<div style="max-width:1400px;margin:0 auto;padding:20px;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">';
+  html += '<h2 style="margin:0 0 6px;">策略评估（走向前回测）</h2>';
+  html += '<p style="color:#666;font-size:13px;margin:0 0 14px;">每策略在历史每一期上用「之前的数据」生成推荐，再和实际开奖对比。基线 = count/4 = ' + baseline.toFixed(3) + '（选8个的期望命中数=2）。<strong>数学上任何策略的长期均值都会回归到基线</strong>——CI 覆盖基线是预期结果。</p>';
+  html += '<p style="color:#666;font-size:12px;margin:0 0 14px;">回测参数：count=' + data.count + '，特征窗口=' + data.window + '期。</p>';
+
+  // 图表：横向条形图
+  html += '<div style="margin:20px 0;">';
+  strategies.forEach(s => {
+    const pct = (s.mean_hits / maxMean * 100).toFixed(2);
+    const ciLowPct = (s.ci_low / maxMean * 100).toFixed(2);
+    const ciHighPct = (s.ci_high / maxMean * 100).toFixed(2);
+    const basePct = (baseline / maxMean * 100).toFixed(2);
+    const color = s.strategy_id === 'uniform_random' ? '#95a5a6' : (s.significant ? '#e17055' : '#74b9ff');
+    html += '<div style="margin:8px 0;">';
+    html += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:2px;">';
+    html += '<span><b>' + s.strategy_id + '</b>' + (s.strategy_id === 'uniform_random' ? ' <span style="color:#888;">（对照组）</span>' : '') + '</span>';
+    html += '<span>' + s.mean_hits.toFixed(3) + '　n=' + s.n_periods + '　p=' + s.p_value.toFixed(3) + (s.significant ? ' <span style="color:#e17055;">*</span>' : '') + '</span>';
+    html += '</div>';
+    html += '<div style="position:relative;height:22px;background:#f4f4f4;border-radius:4px;">';
+    // CI 区间
+    html += '<div style="position:absolute;top:0;bottom:0;left:' + ciLowPct + '%;width:' + (ciHighPct - ciLowPct) + '%;background:' + color + '33;border-radius:4px;"></div>';
+    // 均值条
+    html += '<div style="position:absolute;top:0;bottom:0;left:0;width:' + pct + '%;background:' + color + ';border-radius:4px;"></div>';
+    // 基线虚线
+    html += '<div style="position:absolute;top:-2px;bottom:-2px;left:' + basePct + '%;width:2px;background:#2d3436;box-shadow:0 0 0 1px #fff;"></div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div style="font-size:12px;color:#666;margin-top:12px;">图注：横向条为策略均值；淡色宽带为 95% 置信区间；<b>竖黑线为基线</b> (' + baseline.toFixed(3) + ')。若某策略 CI 未覆盖基线且 p&lt;0.05（右侧标 *），先怀疑 look-ahead bug 而非"找到 alpha"——这是数学。</div>';
+
+  // 详细表格
+  html += '<table style="width:100%;margin-top:22px;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="background:#f8f9fa;"><th style="padding:8px;text-align:left;">策略</th><th style="padding:8px;text-align:right;">样本期数</th><th style="padding:8px;text-align:right;">均值</th><th style="padding:8px;text-align:right;">与基线差</th><th style="padding:8px;text-align:right;">95% CI</th><th style="padding:8px;text-align:right;">p 值</th></tr></thead>';
+  html += '<tbody>';
+  strategies.forEach(s => {
+    html += '<tr style="border-top:1px solid #eee;">';
+    html += '<td style="padding:8px;"><b>' + s.strategy_id + '</b></td>';
+    html += '<td style="padding:8px;text-align:right;">' + s.n_periods + '</td>';
+    html += '<td style="padding:8px;text-align:right;">' + s.mean_hits.toFixed(3) + '</td>';
+    html += '<td style="padding:8px;text-align:right;color:' + (Math.abs(s.delta_vs_baseline)<0.1?'#666':'#e17055') + ';">' + (s.delta_vs_baseline>=0?'+':'') + s.delta_vs_baseline.toFixed(3) + '</td>';
+    html += '<td style="padding:8px;text-align:right;">[' + s.ci_low.toFixed(3) + ', ' + s.ci_high.toFixed(3) + ']</td>';
+    html += '<td style="padding:8px;text-align:right;">' + s.p_value.toFixed(3) + (s.significant ? ' *' : '') + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+
+// ==================== 历史推荐回顾（Phase 4 新增） ====================
+async function showHistory() {
+  const btn = document.getElementById('histBtn');
+  btn.disabled = true; btn.textContent = '加载中…';
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="placeholder"><p>加载历史推荐…</p></div>';
+  try {
+    const resp = await fetch('/api/recommendations/history?limit=200');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+    renderHistory(data.items || []);
+  } catch (e) {
+    el.innerHTML = '<div class="placeholder"><p>加载失败：' + (e.message || e) + '</p></div>';
+  } finally {
+    btn.disabled = false; btn.textContent = '📚 历史推荐回顾';
+  }
+}
+
+function renderHistory(items) {
+  const baselineHint = 'k/4';
+  let html = '<div style="max-width:1400px;margin:0 auto;padding:20px;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">';
+  html += '<h2 style="margin:0 0 6px;">历史推荐回顾</h2>';
+  html += '<p style="color:#666;font-size:13px;margin:0 0 14px;">每一次点击「获取推荐」都会自动存档；等目标期开奖后，系统会补算实际命中数。<b>基线：选 k 个平均命中 k/4</b>——绝大多数记录会在基线附近波动。</p>';
+  if (items.length === 0) {
+    html += '<div class="placeholder" style="padding:40px 20px;"><p>目前没有历史推荐记录。请先点击「获取近100期数据」或到主页面点击「获取推荐」积累数据，之后再回来查看。</p></div>';
+    html += '</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+  // 顶部聚合
+  const evaluated = items.filter(x => x.hits !== null);
+  const meanHits = evaluated.length ? (evaluated.reduce((a,b)=>a+b.hits,0) / evaluated.length) : null;
+  if (meanHits !== null) {
+    const avgCount = evaluated.reduce((a,b)=>a+b.count,0) / evaluated.length;
+    const base = avgCount / 4;
+    html += '<div style="padding:12px;background:#f8f9fa;border-radius:6px;margin-bottom:14px;font-size:13px;">';
+    html += '已开奖且评估的记录：<b>' + evaluated.length + '</b> 条，平均命中 = <b>' + meanHits.toFixed(3) + '</b>，基线 = <b>' + base.toFixed(3) + '</b>';
+    html += '</div>';
+  }
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="background:#f8f9fa;"><th style="padding:8px;text-align:left;">创建时间</th><th style="padding:8px;text-align:left;">目标期</th><th style="padding:8px;text-align:left;">策略</th><th style="padding:8px;text-align:left;">推荐</th><th style="padding:8px;text-align:left;">实际开奖</th><th style="padding:8px;text-align:right;">命中</th></tr></thead>';
+  html += '<tbody>';
+  items.forEach(it => {
+    const winSet = new Set(it.winning || []);
+    const picksHtml = it.picks.map(n => {
+      const hit = winSet.has(n);
+      return '<span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;margin:1px;border-radius:11px;font-size:11px;background:' + (hit?'#00b894':'#dfe6e9') + ';color:' + (hit?'#fff':'#2d3436') + ';">' + String(n).padStart(2,'0') + '</span>';
+    }).join('');
+    const winHtml = it.winning ? it.winning.map(n => '<span style="display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;margin:1px;border-radius:10px;font-size:10px;background:#ffeaa7;color:#2d3436;">' + String(n).padStart(2,'0') + '</span>').join('') : '<span style="color:#aaa;">未开奖</span>';
+    const hitsHtml = it.hits === null ? '<span style="color:#aaa;">—</span>' : '<b style="color:' + (it.hits >= it.count/4 ? '#00b894' : '#636e72') + ';">' + it.hits + '/' + it.count + '</b>';
+    html += '<tr style="border-top:1px solid #eee;">';
+    html += '<td style="padding:6px;color:#666;font-size:11px;">' + (it.created_at || '') + '</td>';
+    html += '<td style="padding:6px;">' + (it.target_period || '') + '</td>';
+    html += '<td style="padding:6px;"><b>' + it.strategy_id + '</b></td>';
+    html += '<td style="padding:6px;">' + picksHtml + '</td>';
+    html += '<td style="padding:6px;">' + winHtml + '</td>';
+    html += '<td style="padding:6px;text-align:right;">' + hitsHtml + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '</div>';
+  document.getElementById('content').innerHTML = html;
 }
 
 </script>
