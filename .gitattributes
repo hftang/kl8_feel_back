@@ -1,0 +1,6 @@
+# 强制以 LF 换行检出，避免 Windows 上 autocrlf 把 shell 脚本/Dockerfile 转成 CRLF
+# 破坏容器内的 #!/bin/sh shebang 与 Docker 解析
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-entrypoint.sh text eol=lf
