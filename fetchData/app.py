@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """快乐8 数据分析 Web 应用"""
 
+import os
+
 from flask import Flask, jsonify, render_template, request
 from kl8tool import (
     fetch_kl8_data, parse_xml_data, generate_charts, recommend,
@@ -175,4 +177,7 @@ def api_backtest():
 
 
 if __name__ == "__main__":
-    app.run(debug=False, port=5001)
+    # 监听地址/端口可通过环境变量配置；容器内需 HOST=0.0.0.0 才能对外访问
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5001"))
+    app.run(debug=False, host=host, port=port, threaded=True)

@@ -1,0 +1,18 @@
+services:
+  kl8:
+    build: .
+    image: kl8-feel-back:latest
+    container_name: kl8-feel-back
+    ports:
+      - "5001:5001"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5001
+      - KL8_DB_PATH=/data/kl8.db
+      - TZ=Asia/Shanghai
+    volumes:
+      - kl8-data:/data
+    restart: unless-stopped
+
+volumes:
+  kl8-data:

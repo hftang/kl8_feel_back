@@ -12,7 +12,9 @@ import sqlite3
 import threading
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kl8.db")
+# 默认与代码同目录；容器环境可通过 KL8_DB_PATH 指向挂载卷实现持久化
+_DB_DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kl8.db")
+DB_PATH = os.environ.get("KL8_DB_PATH", _DB_DEFAULT)
 
 _db_lock = threading.Lock()
 

@@ -80,7 +80,7 @@
 
   .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   .chart-img { width: 100%; height: auto; }
-  .trend-chart-wrap { padding: 12px 16px 16px; }
+  .trend-chart-wrap { padding: 12px 16px 16px; min-height: 260px; }
   .trend-chart-wrap canvas { width: 100% !important; max-height: 320px; }
   @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 
@@ -216,6 +216,51 @@
     width: 32px; text-align: center; cursor: pointer; color: #ccc; font-size: 16px;
   }
   .compare-table .col-remove:hover { color: #e74c3c; }
+
+  /* ===== 移动端适配（手机 / 小平板） ===== */
+  @media (max-width: 768px) {
+    .container { padding: 12px; }
+    .header { padding: 22px 14px; }
+    .header h1 { font-size: 22px; letter-spacing: 1px; }
+    .header p { font-size: 13px; }
+    .disclaimer-banner { max-width: none; margin: 10px 12px 0; padding: 10px 14px; font-size: 12px; }
+
+    /* 操作按钮改为竖排全宽，避免溢出 */
+    .btn-row { display: flex; flex-direction: column; gap: 12px; margin: 18px 0; }
+    .btn-fetch { width: 100%; padding: 14px 20px; font-size: 16px; }
+
+    .card-title { font-size: 15px; padding: 14px 16px; }
+
+    /* 开奖号码卡片：期号行 + 号码整行换行，sep 隐藏 */
+    .period-card { flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 12px; }
+    .period-card .sep { display: none; }
+    .period-info { min-width: 0; flex: 1 1 auto; }
+    .ball-row { flex: 1 1 100%; }
+    .ball { width: 30px; height: 30px; font-size: 12px; }
+    .period-list { max-height: 70vh; }
+
+    /* 热号/温号/冷号三栏改为竖排 */
+    .hot-cold-row { flex-direction: column; gap: 16px; padding: 0 16px 16px; }
+    .hc-col { min-width: 0; flex: 1 1 auto; }
+
+    /* 选中操作栏换行，按钮均分 */
+    .select-bar { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+    .select-bar .sel-actions { margin-left: 0; width: 100%; }
+    .select-bar .sel-actions button { flex: 1; }
+
+    .trend-chart-wrap { min-height: 240px; }
+  }
+
+  @media (max-width: 480px) {
+    .header h1 { font-size: 19px; }
+    .stat-grid { gap: 10px; padding: 14px; }
+    .stat-val { font-size: 22px; }
+    .ball { width: 28px; height: 28px; }
+    .rec-num { width: 34px; height: 34px; font-size: 13px; }
+    .trend-chart-wrap { min-height: 200px; }
+    .compare-stats { gap: 12px; }
+    .recommend-section .card > div { padding: 14px !important; }
+  }
 
 </style>
 <script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
@@ -767,7 +812,7 @@ function renderBacktest(data) {
   html += '<div style="font-size:12px;color:#666;margin-top:12px;">图注：横向条为策略均值；淡色宽带为 95% 置信区间；<b>竖黑线为基线</b> (' + baseline.toFixed(3) + ')。若某策略 CI 未覆盖基线且 p&lt;0.05（右侧标 *），先怀疑 look-ahead bug 而非"找到 alpha"——这是数学。</div>';
 
   // 详细表格
-  html += '<table style="width:100%;margin-top:22px;border-collapse:collapse;font-size:13px;">';
+  html += '<div style="overflow-x:auto"><table style="width:100%;margin-top:22px;border-collapse:collapse;font-size:13px;min-width:640px;">';
   html += '<thead><tr style="background:#f8f9fa;"><th style="padding:8px;text-align:left;">策略</th><th style="padding:8px;text-align:right;">样本期数</th><th style="padding:8px;text-align:right;">均值</th><th style="padding:8px;text-align:right;">与基线差</th><th style="padding:8px;text-align:right;">95% CI</th><th style="padding:8px;text-align:right;">p 值</th></tr></thead>';
   html += '<tbody>';
   strategies.forEach(s => {
@@ -780,7 +825,7 @@ function renderBacktest(data) {
     html += '<td style="padding:8px;text-align:right;">' + s.p_value.toFixed(3) + (s.significant ? ' *' : '') + '</td>';
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   html += '</div>';
   document.getElementById('content').innerHTML = html;
 }
@@ -825,7 +870,7 @@ function renderHistory(items) {
     html += '已开奖且评估的记录：<b>' + evaluated.length + '</b> 条，平均命中 = <b>' + meanHits.toFixed(3) + '</b>，基线 = <b>' + base.toFixed(3) + '</b>';
     html += '</div>';
   }
-  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:680px;">';
   html += '<thead><tr style="background:#f8f9fa;"><th style="padding:8px;text-align:left;">创建时间</th><th style="padding:8px;text-align:left;">目标期</th><th style="padding:8px;text-align:left;">策略</th><th style="padding:8px;text-align:left;">推荐</th><th style="padding:8px;text-align:left;">实际开奖</th><th style="padding:8px;text-align:right;">命中</th></tr></thead>';
   html += '<tbody>';
   items.forEach(it => {
@@ -845,7 +890,7 @@ function renderHistory(items) {
     html += '<td style="padding:6px;text-align:right;">' + hitsHtml + '</td>';
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   html += '</div>';
   document.getElementById('content').innerHTML = html;
 }
