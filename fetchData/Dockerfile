@@ -1,30 +1,56 @@
-# 快乐8 数据分析 Web 应用镜像
-# 构建上下文：本目录（fetchData）
-FROM python:3.13-slim
+ARG PYTHON_VERSION=3.13
+ARG BASE_IMAGE=python:${PYTHON_VERSION}-slim
 
-# 系统依赖：matplotlib 的 Agg 后端渲染需要 freetype/png，部分环境还需 libGL；tzdata 用于时区
+FROM ${BASE_IMAGE} AS builder
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libfreetype6 libpng16-16 libgl1 tzdata \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        libfreetype6-dev \
+        libpng-dev \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --target=/app/python-packages -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+
+FROM ${BASE_IMAGE} AS runtime
+
+LABEL maintainer="kl8-feel-back"
+LABEL version="1.0.0"
+LABEL description="快乐8 数据分析 Web 应用 - arm64"
+
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libfreetype6 \
+        libpng16-16 \
+        tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 EXPOSE 5001
 
-# 先装依赖，利用 Docker 层缓存
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=builder /app/python-packages /usr/local/lib/python${PYTHON_VERSION}/site-packages
 
-# 复制应用代码（含仓库已带的 kl8.db 种子数据）
 COPY . .
 
-# 运行时配置：容器内必须监听 0.0.0.0；数据库落到挂载卷 /data
 ENV HOST=0.0.0.0 \
     PORT=5001 \
     KL8_DB_PATH=/data/kl8.db \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    PYTHONPATH=/usr/local/lib/python${PYTHON_VERSION}/site-packages
 
-# 数据与代码分离，使用非 root 用户运行，便于持久化与安全性
 RUN useradd -m appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /data /app

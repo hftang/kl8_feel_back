@@ -1,8 +1,13 @@
 services:
   kl8:
-    build: .
-    image: kl8-feel-back:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - PYTHON_VERSION=3.13
+    image: kl8-feel-back:1.0.0-arm64
     container_name: kl8-feel-back
+    platform: linux/arm64
     ports:
       - "5001:5001"
     environment:

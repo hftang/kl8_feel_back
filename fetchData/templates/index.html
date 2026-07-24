@@ -449,13 +449,13 @@ function fetchData() {
       if (res.error) { content.innerHTML = '<div class="error">' + res.error + '</div>'; return; }
       savedData = res.data;
       savedCharts = res.charts;
-      renderResults(res.data, res.charts);
+      renderResults(res.data, res.charts, res.source, res.fetched_count, res.total_db_count);
     })
     .catch(e => { content.innerHTML = '<div class="error">请求失败: ' + e.message + '</div>'; })
     .finally(() => { btn.disabled = false; btn.innerHTML = '⚡ 获取近100期数据'; });
 }
 
-function renderResults(data, charts) {
+function renderResults(data, charts, source, fetchedCount, totalDbCount) {
   const freq = {};
   data.forEach(r => r.numbers.forEach(n => { const v = parseInt(n); freq[v] = (freq[v] || 0) + 1; }));
   hotNumbers.clear();
@@ -475,10 +475,30 @@ function renderResults(data, charts) {
 
   let html = '';
 
+  // 数据来源提示
+  let sourceText = '';
+  let sourceColor = '';
+  if (source === 'local') {
+    sourceText = '数据来源：本地数据库（已完整）';
+    sourceColor = '#2ecc71';
+  } else if (source === 'network') {
+    sourceText = '数据来源：网络获取（首次加载）';
+    sourceColor = '#3498db';
+  } else if (source === 'mixed') {
+    sourceText = '数据来源：本地数据库 + 网络补充(' + fetchedCount + '期)';
+    sourceColor = '#f39c12';
+  }
+
   // 统计概览卡片
   html += '<div class="card"><div class="card-title">&#128202; 数据概览</div>';
+  html += '<div style="padding:12px 20px;font-size:12px;color:' + sourceColor + ';font-weight:600;border-bottom:1px solid #eee;">';
+  html += sourceText;
+  if (totalDbCount !== undefined && totalDbCount > 100) {
+    html += ' | 数据库共存储 <strong>' + totalDbCount + '</strong> 期';
+  }
+  html += '</div>';
   html += '<div class="stat-grid">';
-  html += '<div class="stat-box"><div class="stat-val">' + data.length + '</div><div class="stat-label">总期数</div></div>';
+  html += '<div class="stat-box"><div class="stat-val">' + data.length + '</div><div class="stat-label">显示期数</div></div>';
   html += '<div class="stat-box"><div class="stat-val">' + totalNums + '</div><div class="stat-label">总开奖号码</div></div>';
   html += '<div class="stat-box"><div class="stat-val">' + avgSum.toFixed(0) + '</div><div class="stat-label">平均和值</div></div>';
   html += '<div class="stat-box"><div class="stat-val">' + maxFreq + ' / ' + minFreq + '</div><div class="stat-label">最高 / 最低频次</div></div>';

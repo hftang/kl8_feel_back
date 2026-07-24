@@ -6,7 +6,8 @@ import os
 from flask import Flask, jsonify, render_template, request
 from kl8tool import (
     fetch_kl8_data, parse_xml_data, generate_charts, recommend,
-    _recommend_warm, frequency_analysis, missing_analysis, recency_weighted_frequency
+    _recommend_warm, frequency_analysis, missing_analysis, recency_weighted_frequency,
+    trend_analysis, cluster_analysis, repeat_pattern_analysis
 )
 import backtest as backtest_mod
 import store
@@ -15,20 +16,68 @@ import store
 store.init_db()
 
 
-def _ingest_latest():
-    """拉最新 XML → 全量 upsert 到 draws → 事后评估未评估的推荐。
+def _fetch_and_sync(need_count=100):
+    """增量获取数据：先检查本地数据库，只获取缺失的期数。
 
-    每次 /api/fetch, /api/recommend, /api/ingest 之前调用一次；
-    因为 fetch_kl8_data 有 60s 缓存，这里几乎是零成本。
+    逻辑：
+    1. 检查本地数据库中已有的期号集合
+    2. 联网获取最新数据（XML接口返回的数据）
+    3. 找出本地缺失的期数，只插入这些
+    4. 返回最近 need_count 期数据（优先从数据库读取）
+
+    返回：(data, source, fetched_count)
+      - data: 最近 need_count 期数据列表
+      - source: 'local' | 'network' | 'mixed'
+      - fetched_count: 本次联网获取并插入的新期数
     """
+    local_periods = store.get_periods_set()
+    local_count = store.draw_count()
+    
+    if local_count == 0:
+        xml = fetch_kl8_data()
+        if not xml:
+            return None, 'error', 0
+        all_rows = parse_xml_data(xml, 100000)
+        if not all_rows:
+            return None, 'error', 0
+        inserted = store.upsert_draws(all_rows)
+        store.evaluate_pending_recommendations()
+        data = all_rows[:need_count] if len(all_rows) > need_count else all_rows
+        return data, 'network', inserted
+    
+    latest_local = store.latest_period()
+    if latest_local is None:
+        xml = fetch_kl8_data()
+        if not xml:
+            return None, 'error', 0
+        all_rows = parse_xml_data(xml, 100000)
+        if not all_rows:
+            return None, 'error', 0
+        inserted = store.upsert_draws(all_rows)
+        store.evaluate_pending_recommendations()
+        data = all_rows[:need_count] if len(all_rows) > need_count else all_rows
+        return data, 'network', inserted
+    
     xml = fetch_kl8_data()
     if not xml:
-        return None
+        data = store.all_draws_desc(limit=need_count)
+        return data, 'local', 0
+    
     all_rows = parse_xml_data(xml, 100000)
-    if all_rows:
-        store.upsert_draws(all_rows)
-        store.evaluate_pending_recommendations()
-    return all_rows
+    if not all_rows:
+        data = store.all_draws_desc(limit=need_count)
+        return data, 'local', 0
+    
+    missing_rows = [row for row in all_rows if str(row['period']) not in local_periods]
+    
+    if not missing_rows:
+        data = store.all_draws_desc(limit=need_count)
+        return data, 'local', 0
+    
+    inserted = store.upsert_draws(missing_rows)
+    store.evaluate_pending_recommendations()
+    data = store.all_draws_desc(limit=need_count)
+    return data, 'mixed', inserted
 
 
 def _next_period(period_str):
@@ -54,12 +103,10 @@ def index():
 
 @app.route("/api/fetch")
 def api_fetch():
-    all_rows = _ingest_latest()
-    if all_rows is None:
+    results, source, fetched_count = _fetch_and_sync(need_count=100)
+    if results is None:
         return jsonify({"error": "获取数据失败，请检查网络连接"}), 502
 
-    # UI 只展示最近 100 期
-    results = all_rows[:100] if len(all_rows) > 100 else all_rows
     if not results:
         return jsonify({"error": "解析数据失败"}), 500
 
@@ -67,6 +114,9 @@ def api_fetch():
     return jsonify({
         "data": results,
         "charts": charts,
+        "source": source,
+        "fetched_count": fetched_count,
+        "total_db_count": store.draw_count(),
     })
 
 
@@ -75,22 +125,25 @@ def api_recommend():
     count = request.args.get("count", 8, type=int)
     count = max(1, min(8, count))
 
-    all_rows = _ingest_latest()
-    if all_rows is None:
+    results, _, _ = _fetch_and_sync(need_count=100)
+    if results is None:
         return jsonify({"error": "获取数据失败"}), 502
 
-    results = all_rows[:100] if len(all_rows) > 100 else all_rows
     if not results:
         return jsonify({"error": "解析数据失败"}), 500
 
-    recs = recommend(count, results)
+    full_data = store.all_draws_desc()
+    if full_data:
+        recs = recommend(count, full_data)
+    else:
+        recs = recommend(count, results)
 
     # 落库：把本次推荐记录到 recommendations 表，目标期 = 最新期 + 1
     latest = results[0]["period"]
     target = _next_period(latest)
     store.record_recommendations_batch(recs, target_period=target, source="live")
 
-    return jsonify({"count": count, "recommendations": recs, "target_period": target})
+    return jsonify({"count": count, "recommendations": recs, "target_period": target, "data_source": "full_db" if full_data else "partial"})
 
 
 @app.route("/api/warm")
@@ -98,25 +151,27 @@ def api_warm():
     count = request.args.get("count", 3, type=int)
     count = max(1, min(8, count))
 
-    all_rows = _ingest_latest()
-    if all_rows is None:
+    results, _, _ = _fetch_and_sync(need_count=100)
+    if results is None:
         return jsonify({"error": "获取数据失败"}), 502
 
-    results = all_rows[:100] if len(all_rows) > 100 else all_rows
     if not results:
         return jsonify({"error": "解析数据失败"}), 500
 
-    freq = frequency_analysis(results)
-    missing = missing_analysis(results)
-    wfreq = recency_weighted_frequency(results)
+    full_data = store.all_draws_desc()
+    analyze_data = full_data if full_data else results
 
-    recs = _recommend_warm(count, freq, missing, wfreq=wfreq, results=results)
+    freq = frequency_analysis(analyze_data)
+    missing = missing_analysis(analyze_data)
+    wfreq = recency_weighted_frequency(analyze_data)
+
+    recs = _recommend_warm(count, freq, missing, wfreq=wfreq, results=analyze_data)
 
     latest = results[0]["period"]
     target = _next_period(latest)
     store.record_recommendations_batch(recs, target_period=target, source="live")
 
-    return jsonify({"count": count, "recommendations": recs, "target_period": target})
+    return jsonify({"count": count, "recommendations": recs, "target_period": target, "data_source": "full_db" if full_data else "partial"})
 
 
 @app.route("/api/ingest", methods=["GET", "POST"])

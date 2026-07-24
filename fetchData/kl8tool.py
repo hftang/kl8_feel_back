@@ -154,6 +154,75 @@ def missing_analysis(results):
     return missing
 
 
+def trend_analysis(results, window=10):
+    """计算每个号码的趋势(近期频率变化趋势)"""
+    if len(results) < window:
+        return {n: 0.0 for n in range(1, 81)}
+    
+    trends = {}
+    for n in range(1, 81):
+        recent_count = 0
+        past_count = 0
+        for i, r in enumerate(results):
+            if n in [int(x) for x in r["numbers"]]:
+                if i < window:
+                    recent_count += 1
+                elif i < window * 2:
+                    past_count += 1
+        past_freq = past_count / window if window > 0 else 0
+        recent_freq = recent_count / window if window > 0 else 0
+        trends[n] = recent_freq - past_freq
+    return trends
+
+
+def cluster_analysis(results, top_n=20):
+    """分析号码的聚类特征(找出经常一起出现的号码)"""
+    pair_counts = Counter()
+    for r in results:
+        nums = sorted([int(x) for x in r["numbers"]])
+        for i in range(len(nums)):
+            for j in range(i + 1, len(nums)):
+                pair_counts[(nums[i], nums[j])] += 1
+    
+    clusters = {}
+    for n in range(1, 81):
+        related = []
+        for (a, b), cnt in pair_counts.items():
+            if a == n or b == n:
+                related.append((b if a == n else a, cnt))
+        related.sort(key=lambda x: -x[1])
+        clusters[n] = [num for num, _ in related[:top_n]]
+    return clusters
+
+
+def consecutive_patterns(results):
+    """分析连号模式(长度为2-4的连续号码组)"""
+    pattern_counts = Counter()
+    for r in results:
+        nums = sorted([int(x) for x in r["numbers"]])
+        i = 0
+        while i < len(nums):
+            j = i
+            while j < len(nums) and nums[j] == nums[i] + (j - i):
+                j += 1
+            if j - i >= 2:
+                pattern_counts[(nums[i], nums[j-1])] += 1
+            i = j
+    return pattern_counts
+
+
+def repeat_pattern_analysis(results, depth=5):
+    """分析重复号码模式(近期开奖中重复出现的号码)"""
+    repeat_scores = {}
+    for n in range(1, 81):
+        score = 0.0
+        for i in range(min(depth, len(results))):
+            if n in [int(x) for x in results[i]["numbers"]]:
+                score += 1.0 / (i + 1)
+        repeat_scores[n] = score
+    return repeat_scores
+
+
 def odd_even_analysis(results):
     """每期奇偶比统计"""
     stats = []
@@ -378,43 +447,58 @@ def plot_missing(results):
 STRATEGIES = [
     {
         "id": "hot",
-        "name": "热号追踪（娱乐追热）",
-        "desc": "选取近期加权频率最高的号码。追热是常见玩法，但不能提高胜率——每期开奖独立同分布。",
+        "name": "热号追踪",
+        "desc": "选取近期加权频率最高的号码。",
     },
     {
         "id": "cold_rebound",
-        "name": "冷号回补（娱乐）",
-        "desc": "选取长期未出的号码。冷号回补属于赌徒谬误，仅作组合多样化用，不改变命中概率。",
+        "name": "冷号回补",
+        "desc": "选取长期未出但近期有回暖迹象的号码。",
     },
     {
         "id": "missing",
-        "name": "遗漏反弹（娱乐）",
-        "desc": "选取遗漏期数较高的号码。基于「该回来了」的直觉，本质上仍是赌徒谬误。",
+        "name": "遗漏反弹",
+        "desc": "选取遗漏期数较高且历史上出现间隔有规律的号码。",
     },
     {
         "id": "zone_balance",
         "name": "区间均衡",
-        "desc": "将1-80分为4个区间(1-20/21-40/41-60/61-80)，每区等比选号。产出「看起来正常」的组合。",
+        "desc": "将1-80分为4个区间，每区等比选号，确保号码分布均衡。",
     },
     {
         "id": "odd_even",
         "name": "奇偶均衡",
-        "desc": "根据历史奇偶比，选出接近均衡比例的号码组合。同上：只是组合外观选择，不提升胜率。",
+        "desc": "根据历史奇偶比，选出接近均衡比例的号码组合。",
     },
     {
         "id": "sum_target",
         "name": "和值控制",
-        "desc": "控制所选号码和值接近历史平均值。让组合「看起来常见」，不影响期望命中。",
+        "desc": "控制所选号码和值接近历史平均值。",
     },
     {
         "id": "consecutive",
         "name": "连号策略",
-        "desc": "包含1-2组相邻号码。历史上连号出现是概率事件，本策略只是外观差异化。",
+        "desc": "包含1-2组相邻号码，追求连号命中。",
     },
     {
-        "id": "composite",
-        "name": "综合推荐",
-        "desc": "综合频率+遗漏+区间+奇偶多维度加权，权重可由 tune.py 数据驱动调优。均值无法超基线 count/4。",
+        "id": "trend",
+        "name": "趋势追踪",
+        "desc": "选取近期频率上升趋势最明显的号码，捕捉号码热度变化。",
+    },
+    {
+        "id": "cluster",
+        "name": "聚类选号",
+        "desc": "基于历史数据中经常一起出现的号码进行聚类推荐。",
+    },
+    {
+        "id": "repeat",
+        "name": "重复模式",
+        "desc": "选取近期多次重复出现的号码，利用号码重复规律。",
+    },
+    {
+        "id": "smart_composite",
+        "name": "智能综合",
+        "desc": "综合频率、趋势、遗漏、聚类等多维度智能加权推荐。",
     },
 ]
 
@@ -553,6 +637,94 @@ def _recommend_consecutive(count, freq, missing, wfreq=None, rng=None):
     return sorted(result[:count])
 
 
+def _recommend_trend(count, freq, missing, wfreq=None, rng=None, trend=None):
+    """趋势追踪 — 选取近期频率上升趋势最明显的号码"""
+    trend = trend or {}
+    max_trend = max(trend.values()) if trend else 1
+    min_trend = min(trend.values()) if trend else -1
+    if max_trend == min_trend:
+        max_trend = 1
+        min_trend = -1
+    
+    scores = {}
+    for n in range(1, 81):
+        t = trend.get(n, 0)
+        norm_trend = (t - min_trend) / (max_trend - min_trend) if max_trend > min_trend else 0
+        scores[n] = norm_trend * 60 + (freq.get(n, 0) / (max(freq.values()) if freq else 1)) * 40
+    
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
+def _recommend_cluster(count, freq, missing, wfreq=None, rng=None, clusters=None):
+    """聚类选号 — 基于历史数据中经常一起出现的号码进行聚类推荐"""
+    clusters = clusters or {}
+    wfreq = wfreq or {}
+    
+    cluster_scores = {}
+    for n in range(1, 81):
+        related = clusters.get(n, [])
+        related_score = sum(wfreq.get(r, 0) for r in related) / len(related) if related else 0
+        cluster_scores[n] = related_score * 50 + (freq.get(n, 0) / (max(freq.values()) if freq else 1)) * 50
+    
+    ranked = sorted(cluster_scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
+def _recommend_repeat(count, freq, missing, wfreq=None, rng=None, repeat_scores=None):
+    """重复模式 — 选取近期多次重复出现的号码"""
+    repeat_scores = repeat_scores or {}
+    
+    ranked = sorted(repeat_scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
+def _recommend_smart_composite(count, freq, missing, wfreq=None, rng=None, trend=None, clusters=None, repeat_scores=None):
+    """智能综合推荐 — 综合频率、趋势、遗漏、聚类等多维度智能加权"""
+    wfreq = wfreq or {}
+    trend = trend or {}
+    clusters = clusters or {}
+    repeat_scores = repeat_scores or {}
+    
+    scores = {}
+    max_freq = max(freq.values()) if freq else 1
+    max_miss = max(missing.values()) if missing else 1
+    max_wfreq = max(wfreq.values()) if wfreq else 1
+    if max_wfreq == 0:
+        max_wfreq = 1
+    
+    max_trend = max(trend.values()) if trend else 1
+    min_trend = min(trend.values()) if trend else -1
+    trend_range = max_trend - min_trend if max_trend > min_trend else 1
+    
+    max_repeat = max(repeat_scores.values()) if repeat_scores else 1
+    if max_repeat == 0:
+        max_repeat = 1
+    
+    for n in range(1, 81):
+        f_score = (freq.get(n, 0) / max_freq) * 20
+        wf_score = (wfreq.get(n, 0) / max_wfreq) * 20
+        
+        m = missing.get(n, 0)
+        m_score = min(m / max_miss, 0.5) * 15
+        
+        t = trend.get(n, 0)
+        t_score = ((t - min_trend) / trend_range) * 15
+        
+        related = clusters.get(n, [])
+        c_score = sum(wfreq.get(r, 0) for r in related) / (len(related) * max_wfreq) * 15 if related else 0
+        
+        rp_score = (repeat_scores.get(n, 0) / max_repeat) * 15
+        
+        zone_idx = (n - 1) // 20
+        z_score = 5 - abs(zone_idx - 1.5) * (5 / 3.75)
+        
+        scores[n] = f_score + wf_score + m_score + t_score + c_score + rp_score + z_score
+    
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    return sorted([n for n, _ in ranked[:count]])
+
+
 def _recommend_composite(count, freq, missing, wfreq=None, rng=None):
     """综合推荐 — 多维度加权(含近期趋势)。
 
@@ -626,6 +798,10 @@ RECOMMEND_FUNCS = {
     "odd_even": _recommend_odd_even,
     "sum_target": _recommend_sum_target,
     "consecutive": _recommend_consecutive,
+    "trend": _recommend_trend,
+    "cluster": _recommend_cluster,
+    "repeat": _recommend_repeat,
+    "smart_composite": _recommend_smart_composite,
     "composite": _recommend_composite,
 }
 
@@ -639,10 +815,24 @@ def recommend(count, results):
     freq = frequency_analysis(results)
     missing = missing_analysis(results)
     wfreq = recency_weighted_frequency(results)
+    trend = trend_analysis(results)
+    clusters = cluster_analysis(results)
+    repeat_scores = repeat_pattern_analysis(results)
+    
     output = []
     for s in STRATEGIES:
         rng = random.Random(_stable_seed(results, s["id"]))
-        nums = RECOMMEND_FUNCS[s["id"]](count, freq, missing, wfreq=wfreq, rng=rng)
+        func = RECOMMEND_FUNCS[s["id"]]
+        if s["id"] in ["trend"]:
+            nums = func(count, freq, missing, wfreq=wfreq, rng=rng, trend=trend)
+        elif s["id"] in ["cluster"]:
+            nums = func(count, freq, missing, wfreq=wfreq, rng=rng, clusters=clusters)
+        elif s["id"] in ["repeat"]:
+            nums = func(count, freq, missing, wfreq=wfreq, rng=rng, repeat_scores=repeat_scores)
+        elif s["id"] in ["smart_composite"]:
+            nums = func(count, freq, missing, wfreq=wfreq, rng=rng, trend=trend, clusters=clusters, repeat_scores=repeat_scores)
+        else:
+            nums = func(count, freq, missing, wfreq=wfreq, rng=rng)
         output.append({
             "id": s["id"],
             "name": s["name"],

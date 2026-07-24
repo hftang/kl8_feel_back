@@ -103,6 +103,13 @@ def draw_count(db_path=None):
         return c.execute("SELECT COUNT(*) FROM draws").fetchone()[0]
 
 
+def get_periods_set(db_path=None):
+    """返回数据库中所有期号的集合，用于快速判断某期是否已存在"""
+    with _db_lock, _conn(db_path) as c:
+        rows = c.execute("SELECT period FROM draws").fetchall()
+    return {row[0] for row in rows}
+
+
 def all_draws_desc(limit=None, db_path=None):
     """返回与 parse_xml_data 相同形状的 dict 列表（最新在前）。
 
